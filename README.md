@@ -15,7 +15,7 @@ wget https://github.com/milvus-io/milvus-docs/releases/download/v2.4.6-preview/m
 ```
 
 ## Or 创建新的代码仓库
-```
+```bash
 echo "# qwen3-embedding-rag" >> README.md
 git init
 git add README.md

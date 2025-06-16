@@ -1,7 +1,7 @@
 from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 import torch
-from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
 import os
@@ -223,7 +223,7 @@ Use the following pieces of information enclosed in <context> tags to provide an
 
 
 response = openai_client.chat.completions.create(
-    model="deepseek-r1",
+    model="qwen3:4b",
     messages=[
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": USER_PROMPT},
