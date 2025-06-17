@@ -1,0 +1,100 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 开发指南
+
+## 环境设置
+
+### 1. 安装依赖
+```bash
+uv pip install --upgrade pymilvus openai requests tqdm sentence-transformers transformers "numpy<2" "httpx[socks]"
+```
+
+### 2. 环境变量配置
+在运行程序前，需要设置以下环境变量：
+```bash
+export OPENAI_API_KEY='your_api_key_here'
+export OPENAI_BASE_URL='http://your_ollama_server:11434/v1'
+export MILVUS_URI='http://your_milvus_server:19530'
+```
+
+### 3. 数据准备
+下载 Milvus 文档数据：
+```bash
+wget https://github.com/milvus-io/milvus-docs/releases/download/v2.4.6-preview/milvus_docs_2.4.x_en.zip
+unzip -q milvus_docs_2.4.x_en.zip -d milvus_docs
+```
+
+## 代码规范
+
+### 1. 日志记录
+- 使用 `logger.info()` 记录重要操作
+- 使用 `logger.error()` 记录错误信息
+- 避免使用 `print()` 语句
+
+### 2. 异常处理
+- 所有外部 API 调用都要有异常处理
+- 使用 try-except 块包装关键操作
+- 提供有意义的错误信息
+
+### 3. 配置管理
+- 所有配置项都在 `RAGConfig` 类中定义
+- 使用环境变量获取敏感信息
+- 提供合理的默认值
+
+## 性能优化建议
+
+### 1. 模型加载
+- 使用 `trust_remote_code=True` 参数
+- 自动检测并使用 GPU
+- 模型加载后设置为 eval 模式
+
+### 2. 缓存策略
+- 使用 `@lru_cache` 装饰器缓存频繁调用的函数
+- 合理设置缓存大小
+- 定期清理缓存
+
+### 3. 批处理
+- 使用批处理进行向量编码
+- 合理设置批处理大小
+- 使用进度条显示处理进度
+
+## 调试技巧
+
+### 1. 日志级别
+可以通过修改 [main.py](mdc:main.py) 中的日志级别来获取更详细的信息：
+```python
+logging.basicConfig(level=logging.DEBUG)
+```
+
+### 2. 配置调试
+在 `RAGConfig` 类中添加调试信息：
+```python
+logger.info(f"Using device: {self.DEVICE}")
+logger.info(f"Chunk size: {self.CHUNK_SIZE}")
+```
+
+### 3. 性能监控
+添加性能监控代码：
+```python
+import time
+start_time = time.time()
+# ... 执行操作
+logger.info(f"Operation took {time.time() - start_time:.2f} seconds")
+```
+
+## 扩展开发
+
+### 1. 添加新的嵌入模型
+在 `RAGConfig` 中修改 `EMBEDDING_MODEL` 参数
+
+### 2. 添加新的重排序模型
+在 `RAGConfig` 中修改 `RERANKER_MODEL` 参数
+
+### 3. 修改文档处理策略
+在 `_load_and_split_docs()` 方法中实现自定义分块逻辑
+
+### 4. 添加新的检索策略
+在 `retrieve()` 方法中实现自定义检索逻辑

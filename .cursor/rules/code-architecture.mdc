@@ -1,0 +1,62 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 代码架构指南
+
+## 核心类结构
+
+### RAGConfig 类
+位于 [main.py](mdc:main.py) 中，负责管理所有配置参数：
+
+- **环境配置**: API keys、服务地址
+- **模型配置**: 嵌入模型、重排序模型、LLM 模型
+- **RAG 参数**: 向量维度、度量类型、搜索限制
+- **性能配置**: 分块大小、缓存大小、批处理大小
+
+### RAGPipeline 类
+主要的 RAG 管道实现，包含以下核心方法：
+
+#### 初始化方法
+- `__init__()` - 初始化管道，设置客户端和模型
+- `_setup_clients()` - 初始化 OpenAI 和 Milvus 客户端
+- `_load_models()` - 加载嵌入和重排序模型
+- `_init_cache()` - 初始化 LRU 缓存
+
+#### 数据处理方法
+- `_load_and_split_docs()` - 加载和分块文档
+- `setup_collection()` - 设置 Milvus 集合
+- `encode()` - 生成文本嵌入向量
+
+#### 检索和重排序方法
+- `retrieve()` - 从 Milvus 检索相关文档
+- `rerank()` - 重排序检索到的文档
+- `_format_reranker_input()` - 格式化重排序输入
+- `_process_reranker_inputs()` - 处理重排序输入
+- `_compute_reranker_logits()` - 计算重排序分数
+
+#### 答案生成方法
+- `generate_answer()` - 使用 LLM 生成最终答案
+- `run()` - 执行完整的 RAG 管道
+
+## 数据流
+
+1. **文档加载** → 文件读取 → 智能分块
+2. **向量化** → 嵌入生成 → 存储到 Milvus
+3. **检索** → 查询向量化 → 相似度搜索
+4. **重排序** → 相关性评分 → 文档排序
+5. **生成** → 上下文构建 → LLM 答案生成
+
+## 错误处理
+
+- 使用 logging 模块进行日志记录
+- 所有关键操作都有异常处理
+- 优雅的错误恢复机制
+
+## 性能优化
+
+- LRU 缓存减少重复计算
+- 批处理提高处理效率
+- GPU 加速支持
+- 智能文档分块策略

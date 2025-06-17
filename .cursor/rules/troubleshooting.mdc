@@ -1,0 +1,134 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 故障排除指南
+
+## 常见问题及解决方案
+
+### 1. API Key 相关错误
+
+**错误信息**: `'RAGConfig' object has no attribute 'OPENAI_API_KEY'`
+
+**解决方案**:
+- 确保设置了环境变量：`export OPENAI_API_KEY='your_key_here'`
+- 检查 [main.py](mdc:main.py) 中的 `RAGConfig` 类是否包含 `OPENAI_API_KEY` 属性
+
+### 2. 模型加载失败
+
+**错误信息**: `Failed to load models`
+
+**可能原因**:
+- 网络连接问题
+- 模型名称错误
+- 内存不足
+
+**解决方案**:
+- 检查网络连接
+- 验证模型名称是否正确
+- 增加系统内存或使用更小的模型
+- 检查 `trust_remote_code=True` 参数
+
+### 3. Milvus 连接失败
+
+**错误信息**: `Failed to initialize clients`
+
+**解决方案**:
+- 检查 Milvus 服务是否运行
+- 验证 `MILVUS_URI` 配置是否正确
+- 检查防火墙设置
+
+### 4. 文档加载失败
+
+**错误信息**: `Error loading documents`
+
+**解决方案**:
+- 检查 `DATA_PATH_GLOB` 路径是否正确
+- 确保文档文件存在且可读
+- 检查文件编码格式
+
+### 5. 内存不足
+
+**症状**: 程序运行缓慢或崩溃
+
+**解决方案**:
+- 减少 `BATCH_SIZE` 配置
+- 减少 `CHUNK_SIZE` 配置
+- 使用 CPU 而不是 GPU
+- 增加系统内存
+
+### 6. GPU 相关问题
+
+**错误信息**: CUDA 相关错误
+
+**解决方案**:
+- 检查 CUDA 驱动是否正确安装
+- 验证 PyTorch 是否支持 CUDA
+- 在 [main.py](mdc:main.py) 中设置 `DEVICE = "cpu"`
+
+## 性能优化问题
+
+### 1. 检索速度慢
+
+**解决方案**:
+- 检查 Milvus 索引配置
+- 优化向量维度
+- 使用更快的嵌入模型
+
+### 2. 重排序速度慢
+
+**解决方案**:
+- 减少 `SEARCH_LIMIT` 配置
+- 使用更小的重排序模型
+- 启用批处理
+
+### 3. 内存使用过高
+
+**解决方案**:
+- 减少缓存大小
+- 使用更小的模型
+- 优化文档分块策略
+
+## 调试步骤
+
+### 1. 启用详细日志
+在 [main.py](mdc:main.py) 中修改日志级别：
+```python
+logging.basicConfig(level=logging.DEBUG)
+```
+
+### 2. 检查配置
+在程序开始时打印配置信息：
+```python
+logger.info(f"Device: {config.DEVICE}")
+logger.info(f"Model: {config.EMBEDDING_MODEL}")
+```
+
+### 3. 分步测试
+分别测试各个组件：
+- 测试模型加载
+- 测试文档处理
+- 测试向量检索
+- 测试答案生成
+
+## 环境检查清单
+
+在运行程序前，请检查：
+
+- [ ] Python 版本 >= 3.12
+- [ ] 所有依赖包已安装
+- [ ] 环境变量已设置
+- [ ] Milvus 服务正在运行
+- [ ] 文档数据已下载
+- [ ] 网络连接正常
+- [ ] 有足够的内存和存储空间
+
+## 获取帮助
+
+如果遇到其他问题：
+
+1. 检查日志输出中的详细错误信息
+2. 查看相关组件的官方文档
+3. 在 GitHub Issues 中搜索类似问题
+4. 联系项目维护者

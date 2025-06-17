@@ -1,0 +1,60 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Qwen3 Embedding RAG 项目概览
+
+这是一个基于 Qwen3 Embedding 和 Milvus 向量数据库构建的企业级 RAG（检索增强生成）系统。
+
+## 核心文件
+
+- [main.py](mdc:main.py) - 主程序入口，包含完整的 RAG 管道实现
+- [README.md](mdc:README.md) - 项目说明文档
+- [pyproject.toml](mdc:pyproject.toml) - Python 项目配置文件
+- [uv.lock](mdc:uv.lock) - 依赖锁定文件
+
+## 项目结构
+
+```
+qwen3-embedding-rag/
+├── main.py                 # 主程序文件
+├── milvus_docs/           # Milvus 文档数据目录
+├── pyproject.toml         # 项目配置
+├── README.md              # 项目说明
+└── .venv/                 # 虚拟环境
+```
+
+## 技术栈
+
+- **嵌入模型**: Qwen/Qwen3-Embedding-0.6B
+- **重排序模型**: Qwen/Qwen3-Reranker-0.6B  
+- **向量数据库**: Milvus
+- **大语言模型**: qwen3:4b
+- **Python 版本**: >=3.12
+
+## 主要功能
+
+1. 文档加载和分块处理
+2. 向量嵌入生成
+3. 相似度检索
+4. 文档重排序
+5. 答案生成
+
+## 环境要求
+
+- Python 3.12+
+- CUDA 支持（可选，用于 GPU 加速）
+- Milvus 服务
+- OpenAI 兼容的 API 服务
+
+## 依赖项
+
+主要依赖包括：
+- `pymilvus` - Milvus 客户端
+- `openai` - OpenAI API 客户端
+- `sentence-transformers` - 句子嵌入模型
+- `transformers` - Hugging Face 模型库
+- `torch` - PyTorch 深度学习框架
+- `numpy<2` - 数值计算库
+- `httpx[socks]` - HTTP 客户端
