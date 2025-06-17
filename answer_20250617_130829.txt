@@ -1,0 +1,26 @@
+问题: Milvus 支持哪些存储后端？
+答案: <think>
+好的，我现在需要回答用户的问题：“Milvus 支持哪些存储后端？”根据提供的上下文信息，我需要仔细查找相关内容。
+
+首先，我快速浏览上下文中的各个段落。注意到有一段提到：“Where does Milvus store data?” 这里提到Milvus处理两种数据：插入的数据和元数据。接着，上下文中还提到“data persistence”部分，目前只支持MinIO。另外，在关于存储后端的问题中，可能涉及到不同的存储选项。
+
+不过，上下文中并没有直接列出Milvus支持的所有存储后端。但是，在“Can I share an etcd instance among multiple Milvus instances?”的部分，提到需要修改etcd.rootPath，这可能暗示etcd是Milvus的一个存储后端，但用户的问题是关于存储后端，可能包括数据存储和元数据存储。
+
+另外，在“Where does Milvus store data?”中，提到数据存储可能涉及系统存储，而元数据可能由etcd管理。因此，可能的存储后端包括etcd用于元数据，以及MinIO用于数据持久化。此外，可能还有其他存储后端，但根据上下文，只明确提到了MinIO和etcd。
+
+需要确认是否有其他存储后端被支持。例如，在问题中提到“data persistence”目前只支持MinIO，这可能意味着MinIO是数据存储的后端。而etcd用于存储元数据。此外，可能还有其他存储选项，但根据上下文，没有提到其他存储后端，比如S3、HDFS等，但用户的问题可能需要根据上下文中的信息来回答。
+
+因此，根据上下文，Milvus支持的存储后端包括etcd（用于元数据）和MinIO（用于数据持久化）。可能还有其他存储后端，但根据提供的上下文，只明确提到了这两个。
+</think>
+
+根据提供的上下文信息，Milvus支持的存储后端主要包括以下两种：
+
+1. **etcd**  
+   - 用于存储元数据（如集合、分区、索引等结构信息）。  
+   - 可以通过修改 `etcd.rootPath` 配置不同Milvus实例共享同一个etcd实例。
+
+2. **MinIO**  
+   - 用于数据持久化（当前仅支持MinIO作为数据存储后端）。  
+   - 通过配置 `log.persistence.enabled=true` 可启用日志
+
+生成时间: 2025-06-17 13:08:29

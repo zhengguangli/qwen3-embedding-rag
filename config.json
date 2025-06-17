@@ -1,0 +1,23 @@
+{
+  "openai_api_key": "",
+  "openai_base_url": "http://10.172.10.103:11434/v1",
+  "milvus_uri": "http://10.172.10.100:19530",
+  "data_path_glob": "milvus_docs/en/faq/*.md",
+  "collection_name": "qwen3_embedding_rag",
+  "embedding_model": "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0",
+  "reranker_model": "qwen3:4b",
+  "llm_model": "qwen3:4b",
+  "embedding_dim": 1024,
+  "metric_type": "IP",
+  "consistency_level": "Strong",
+  "search_limit": 10,
+  "rerank_top_k": 3,
+  "chunk_size": 1000,
+  "chunk_overlap": 200,
+  "cache_size": 1000,
+  "batch_size": 32,
+  "max_workers": 4,
+  "max_retries": 3,
+  "retry_delay": 1.0,
+  "system_prompt": "你是一个专业的AI助手，请基于提供的上下文信息准确回答问题。"
+} 
