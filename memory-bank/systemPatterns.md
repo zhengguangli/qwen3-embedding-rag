@@ -212,4 +212,9 @@ class CustomConfig(RAGConfig):
 ### 4. 远程连接支持
 - endpoint统一管理
 - 支持多种协议
-- 连接状态检测 
+- 连接状态检测
+
+## 配置优先级与多环境支持
+- 配置优先级：环境变量 > 指定配置文件 > 默认配置
+- 支持多环境配置文件：rag_config.{env}.json
+- CLI和主流程均可通过--env参数或RAG_ENV环境变量切换环境 

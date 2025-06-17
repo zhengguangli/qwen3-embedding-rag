@@ -12,9 +12,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from .config import RAGConfig
-from .pipeline import RAGPipeline
-from .utils import setup_logging, check_dependencies
+from src.rag.config import RAGConfig
+from src.rag.pipeline import RAGPipeline
+from src.rag.utils import setup_logging, check_dependencies
+from openai import OpenAI
+from src.rag.embedding import EmbeddingService
 
 
 class RAGApplication:
@@ -112,6 +114,12 @@ class RAGApplication:
         try:
             self.logger.info("初始化RAG管道...")
             self.config.print_config()
+            
+            openai_client = OpenAI(
+                api_key=self.config.api.openai_api_key,
+                base_url=self.config.api.openai_base_url
+            )
+            embedding_service = EmbeddingService(self.config, openai_client)
             
             pipeline = RAGPipeline(self.config)
             self.pipeline = pipeline

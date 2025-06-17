@@ -18,7 +18,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Prompt
 from rich.syntax import Syntax
 
-from .config import RAGConfig
+from src.rag.config import RAGConfig
+from src.rag.exceptions import RAGException, handle_exception
 from .pipeline import RAGPipeline
 from .utils import setup_logging, check_dependencies
 
@@ -38,12 +39,14 @@ def print_banner():
 @click.group()
 @click.version_option(version="1.0.0", prog_name="RAG系统")
 @click.option("--config", "-c", type=click.Path(exists=True), help="配置文件路径")
+@click.option("--env", default=None, help="指定环境（如dev/prod/test），优先于RAG_ENV环境变量")
 @click.option("--log-level", default="INFO", help="日志级别")
 @click.pass_context
-def cli(ctx, config: Optional[str], log_level: str):
+def cli(ctx, config: Optional[str], env: Optional[str], log_level: str):
     """Qwen3 Embedding RAG 系统 - 基于 Milvus 的检索增强生成系统"""
     ctx.ensure_object(dict)
     ctx.obj["config"] = config
+    ctx.obj["env"] = env
     ctx.obj["log_level"] = log_level
     
     # 设置日志
@@ -64,7 +67,7 @@ def ask(ctx, question: Optional[str], output_file: str, force_recreate: bool):
         check_dependencies()
         
         # 加载配置
-        config = RAGConfig(ctx.obj["config"])
+        config = RAGConfig(ctx.obj["config"], env=ctx.obj["env"])
         ctx.obj["logger"].info("配置加载成功")
         
         # 显示配置摘要
@@ -113,7 +116,7 @@ def setup(ctx):
         check_dependencies()
         
         # 加载配置
-        config = RAGConfig(ctx.obj["config"])
+        config = RAGConfig(ctx.obj["config"], env=ctx.obj["env"])
         
         with Progress(
             SpinnerColumn(),
@@ -145,7 +148,7 @@ def config(ctx):
     print_banner()
     
     try:
-        config = RAGConfig(ctx.obj["config"])
+        config = RAGConfig(ctx.obj["config"], env=ctx.obj["env"])
         show_detailed_config(config)
         
     except Exception as e:
@@ -160,7 +163,7 @@ def status(ctx):
     print_banner()
     
     try:
-        config = RAGConfig(ctx.obj["config"])
+        config = RAGConfig(ctx.obj["config"], env=ctx.obj["env"])
         
         # 检查各个组件状态
         status_table = rich.table.Table(title="系统状态")

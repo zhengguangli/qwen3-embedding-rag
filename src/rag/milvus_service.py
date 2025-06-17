@@ -21,14 +21,14 @@ from pymilvus import MilvusClient, connections
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from pymilvus.milvus_client.index import IndexParams
 
-from .config import RAGConfig
+from src.rag.config import RAGConfig
+from src.rag.exceptions import RAGException, handle_exception
 from .base import BaseService
 from .exceptions import (
     MilvusConnectionError,
     MilvusCollectionError, 
     MilvusIndexError,
     ValidationError,
-    handle_exception
 )
 
 
@@ -64,21 +64,19 @@ class MilvusService(BaseService):
     """
     
     def __init__(self, config: RAGConfig):
-        super().__init__(config, "milvus")
-        
+        # 先设置必要的属性
         self.client: Optional[MilvusClient] = None
         self._connection_alias = "rag_default"
         
-        # 验证必需配置
-        self.validate_config([
-            "database.endpoint",
-            "database.collection_name",
-            "database.embedding_dim"
-        ])
+        # 调用父类初始化（会自动调用_initialize()）
+        super().__init__(config, "milvus")
     
     def _initialize(self) -> None:
         """初始化Milvus服务"""
         try:
+            # 验证必需配置
+            self._validate_required_config()
+            
             # 初始化客户端连接
             self._init_client()
             
@@ -91,6 +89,33 @@ class MilvusService(BaseService):
             raise MilvusConnectionError(
                 f"Milvus服务初始化失败: {str(e)}",
                 endpoint=self._get_endpoint()
+            )
+    
+    def _validate_required_config(self) -> None:
+        """验证必需的配置项"""
+        required_configs = [
+            ("database.collection_name", self.config.database.collection_name),
+            ("database.embedding_dim", self.config.database.embedding_dim)
+        ]
+        
+        # 检查连接配置（至少要有一个）
+        endpoint_configs = [
+            getattr(self.config.database, 'endpoint', None),
+            getattr(self.config.database, 'milvus_uri', None),
+            getattr(self.config.database, 'host', None)
+        ]
+        
+        if not any(endpoint_configs):
+            required_configs.append(("database.endpoint/milvus_uri/host", None))
+        
+        missing_configs = []
+        for key, value in required_configs:
+            if value is None:
+                missing_configs.append(key)
+        
+        if missing_configs:
+            raise ValidationError(
+                f"缺少必需的配置项: {', '.join(missing_configs)}"
             )
     
     def _get_endpoint(self) -> str:
@@ -221,7 +246,8 @@ class MilvusService(BaseService):
                     self._create_index(collection_name)
                 else:
                     self.logger.info(f"集合已存在: {collection_name}")
-                
+                # 数据导入后，确保集合被加载到内存
+                self.client.load_collection(collection_name=collection_name)
                 return True
                 
             except Exception as e:
@@ -231,19 +257,24 @@ class MilvusService(BaseService):
                 )
     
     def _create_collection(self, collection_name: str) -> None:
-        """创建集合"""
+        """创建集合（修正版，auto_id=False，允许手动传入id）"""
         try:
+            from pymilvus import DataType
+            schema = MilvusClient.create_schema(
+                auto_id=False,
+                enable_dynamic_field=True,
+            )
+            schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
+            schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.config.database.embedding_dim)
             self.client.create_collection(
                 collection_name=collection_name,
-                dimension=self.config.database.embedding_dim,
-                metric_type=self.config.database.metric_type,
+                schema=schema,
                 consistency_level=self.config.database.consistency_level,
                 properties={
                     "collection.ttl.seconds": getattr(self.config.database, 'ttl_seconds', 0)
                 }
             )
             self.logger.info(f"创建集合成功: {collection_name}")
-            
         except Exception as e:
             raise MilvusCollectionError(
                 f"创建集合失败: {str(e)}",
@@ -251,25 +282,24 @@ class MilvusService(BaseService):
             )
     
     def _create_index(self, collection_name: str) -> None:
-        """创建索引"""
+        """创建索引（修正版，兼容新版Milvus API）"""
         try:
-            index_params = IndexParams({
-                "index_type": self.config.database.index_type,
-                "metric_type": self.config.database.metric_type,
-                "params": {
+            index_params = self.client.prepare_index_params()
+            index_params.add_index(
+                field_name="embedding",
+                metric_type=self.config.database.metric_type,
+                index_type=self.config.database.index_type,
+                params={
                     "nlist": self.config.database.nlist,
                     "m": getattr(self.config.database, "m", 4),
                     "nbits": getattr(self.config.database, "nbits", 8)
                 }
-            })
-            
+            )
             self.client.create_index(
                 collection_name=collection_name,
-                field_name="embedding",
                 index_params=index_params
             )
             self.logger.info(f"创建索引成功: {collection_name}")
-            
         except Exception as e:
             raise MilvusIndexError(
                 f"创建索引失败: {str(e)}",
@@ -342,23 +372,32 @@ class MilvusService(BaseService):
                     collection_name=self.config.database.collection_name
                 )
     
+    def _remove_reserved_keys(self, obj: Any, reserved_keys=None):
+        if reserved_keys is None:
+            reserved_keys = {"id", "embedding", "text"}
+        if isinstance(obj, dict):
+            return {k: self._remove_reserved_keys(v, reserved_keys) for k, v in obj.items() if k not in reserved_keys}
+        elif isinstance(obj, list):
+            return [self._remove_reserved_keys(i, reserved_keys) for i in obj]
+        else:
+            return obj
+
     def _prepare_insert_data(
         self, 
         chunks: List[str], 
         embeddings: List[List[float]], 
         metadata: Optional[List[Dict[str, Any]]]
     ) -> List[Dict[str, Any]]:
-        """准备插入数据"""
+        """准备插入数据（递归移除metadata中的'id'等保留字段）"""
         data = []
         current_time = time.time()
-        
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            # 生成唯一ID
-            chunk_hash = hashlib.md5(chunk.encode('utf-8')).hexdigest()
-            doc_id = f"{chunk_hash}_{i}"
-            
-            # 准备元数据
-            doc_metadata = metadata[i] if metadata and i < len(metadata) else {}
+            # 生成唯一int型ID（hash+index，防止溢出）
+            chunk_hash = int(hashlib.md5(chunk.encode('utf-8')).hexdigest(), 16) % (2**63)
+            doc_id = chunk_hash + i
+            doc_metadata = metadata[i].copy() if metadata and i < len(metadata) else {}
+            doc_metadata = self._remove_reserved_keys(doc_metadata)
+            print(f"[DEBUG] doc_metadata before insert: {doc_metadata}")
             doc_metadata.update({
                 "chunk_id": doc_id,
                 "chunk_index": i,
@@ -366,14 +405,12 @@ class MilvusService(BaseService):
                 "word_count": len(chunk.split()),
                 "insert_time": current_time
             })
-            
             data.append({
                 "id": doc_id,
                 "text": chunk,
                 "embedding": embedding,
                 "metadata": doc_metadata
             })
-        
         return data
     
     def _batch_insert(self, collection_name: str, data: List[Dict[str, Any]]) -> Tuple[int, List[str]]:

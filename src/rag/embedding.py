@@ -21,14 +21,9 @@ from dataclasses import dataclass
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .config import RAGConfig
+from src.rag.config import RAGConfig
 from .base import CacheableService
-from .exceptions import (
-    EmbeddingError, 
-    ValidationError, 
-    APIError, 
-    handle_exception
-)
+from src.rag.exceptions import RAGException, handle_exception
 
 
 @dataclass
@@ -53,23 +48,22 @@ class EmbeddingService(CacheableService):
     """
     
     def __init__(self, config: RAGConfig, openai_client: OpenAI):
-        # 初始化缓存大小
-        cache_size = config.models.embedding.cache_size
-        super().__init__(config, "embedding", cache_size)
-        
+        # 先设置openai_client属性，因为_initialize()会用到它
         self.openai_client = openai_client
         self._lru_cache: Optional[Any] = None
         
-        # 验证必需配置
-        self.validate_config([
-            "models.embedding.name",
-            "models.embedding.dim",
-            "models.embedding.max_length"
-        ])
+        # 初始化缓存大小
+        cache_size = config.models.embedding.cache_size
+        
+        # 调用父类初始化（会自动调用_initialize()）
+        super().__init__(config, "embedding", cache_size)
     
     def _initialize(self) -> None:
         """初始化嵌入服务"""
         try:
+            # 验证必需配置
+            self._validate_required_config()
+            
             # 设置LRU缓存
             if self.cache_size > 0:
                 self._lru_cache = lru_cache(maxsize=self.cache_size)(self._encode_impl)
@@ -82,9 +76,27 @@ class EmbeddingService(CacheableService):
             self._test_api_connection()
             
         except Exception as e:
-            raise EmbeddingError(
+            raise RAGException(
                 f"嵌入服务初始化失败: {str(e)}",
                 model_name=self.config.models.embedding.name
+            )
+    
+    def _validate_required_config(self) -> None:
+        """验证必需的配置项"""
+        required_configs = [
+            ("models.embedding.name", self.config.models.embedding.name),
+            ("models.embedding.dim", self.config.models.embedding.dim),
+            ("models.embedding.max_length", self.config.models.embedding.max_length)
+        ]
+        
+        missing_configs = []
+        for key, value in required_configs:
+            if value is None:
+                missing_configs.append(key)
+        
+        if missing_configs:
+            raise RAGException(
+                f"缺少必需的配置项: {', '.join(missing_configs)}"
             )
     
     def _test_api_connection(self) -> None:
@@ -98,12 +110,12 @@ class EmbeddingService(CacheableService):
             )
             
             if not test_response.data:
-                raise APIError("API响应为空")
+                raise RAGException("API响应为空")
             
             self.logger.debug("API连接测试成功")
             
         except Exception as e:
-            raise APIError(
+            raise RAGException(
                 f"API连接测试失败: {str(e)}",
                 endpoint=self.config.api.openai_base_url
             )
@@ -133,7 +145,7 @@ class EmbeddingService(CacheableService):
             嵌入向量
             
         Raises:
-            EmbeddingError: 编码失败
+            RAGException: 编码失败
         """
         with self._measure_time("encode_single"):
             try:
@@ -148,7 +160,7 @@ class EmbeddingService(CacheableService):
                 )
                 
                 if not response.data:
-                    raise EmbeddingError("API返回空数据")
+                    raise RAGException("API返回空数据")
                 
                 embedding = response.data[0].embedding
                 
@@ -158,16 +170,16 @@ class EmbeddingService(CacheableService):
                 
                 # 验证嵌入向量
                 if not self._validate_embedding(embedding):
-                    raise EmbeddingError("生成的嵌入向量无效")
+                    raise RAGException("生成的嵌入向量无效")
                 
                 return embedding
                 
             except Exception as e:
-                if isinstance(e, EmbeddingError):
+                if isinstance(e, RAGException):
                     raise
                 
                 rag_exception = handle_exception(e)
-                raise EmbeddingError(
+                raise RAGException(
                     f"嵌入生成失败: {str(e)}",
                     model_name=self.config.models.embedding.name
                 ) from e
@@ -182,7 +194,7 @@ class EmbeddingService(CacheableService):
             预处理后的文本
         """
         if not text or not text.strip():
-            raise ValidationError("输入文本不能为空")
+            raise RAGException("输入文本不能为空")
         
         # 去除多余空白
         text = " ".join(text.split())
@@ -274,11 +286,11 @@ class EmbeddingService(CacheableService):
             嵌入向量
             
         Raises:
-            ValidationError: 输入验证失败
-            EmbeddingError: 编码失败
+            RAGException: 输入验证失败
+            RAGException: 编码失败
         """
         if not isinstance(text, str):
-            raise ValidationError("输入必须是字符串类型")
+            raise RAGException("输入必须是字符串类型")
         
         # 检查缓存
         cache_key = self._get_cache_key(text)
@@ -306,14 +318,14 @@ class EmbeddingService(CacheableService):
             嵌入向量列表
             
         Raises:
-            ValidationError: 输入验证失败
-            EmbeddingError: 批量编码失败
+            RAGException: 输入验证失败
+            RAGException: 批量编码失败
         """
         if not texts:
             return []
         
         if not isinstance(texts, list):
-            raise ValidationError("texts必须是列表类型")
+            raise RAGException("texts必须是列表类型")
         
         with self._measure_time("encode_batch"):
             self.logger.info(f"开始批量编码 {len(texts)} 个文本")
@@ -343,7 +355,7 @@ class EmbeddingService(CacheableService):
                 return embeddings
                 
             except Exception as e:
-                raise EmbeddingError(f"批量编码失败: {str(e)}")
+                raise RAGException(f"批量编码失败: {str(e)}")
     
     def encode_with_metadata(self, text: str) -> EmbeddingResult:
         """编码并返回详细元数据
@@ -425,10 +437,10 @@ class EmbeddingService(CacheableService):
             new_size: 新的缓存大小
             
         Raises:
-            ValidationError: 无效的缓存大小
+            RAGException: 无效的缓存大小
         """
         if new_size < 0:
-            raise ValidationError("缓存大小不能为负数")
+            raise RAGException("缓存大小不能为负数")
         
         # 更新配置
         self.cache_size = new_size

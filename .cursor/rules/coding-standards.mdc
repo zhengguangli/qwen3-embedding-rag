@@ -3,3 +3,82 @@ description:
 globs:
 alwaysApply: false
 ---
+# 编码标准和最佳实践
+
+## 代码风格
+
+### Python代码规范
+- 遵循PEP 8标准
+- 使用类型注解（Type Hints）
+- 函数和类必须有文档字符串
+- 使用f-strings进行字符串格式化
+- 导入顺序：标准库 → 第三方库 → 本地模块
+
+### 命名约定
+- 类名：PascalCase（如`EmbeddingService`）
+- 函数和变量：snake_case（如`encode_batch`）
+- 常量：UPPER_SNAKE_CASE（如`MAX_RETRY_COUNT`）
+- 私有方法：下划线前缀（如`_encode_impl`）
+
+## 架构模式
+
+### 服务基类模式
+所有服务都应继承自[CacheableService](mdc:rag/base.py)：
+```python
+class MyService(CacheableService):
+    def __init__(self, config: RAGConfig):
+        super().__init__(config, "service_name", cache_size)
+```
+
+### 异常处理
+使用统一的异常系统[exceptions.py](mdc:rag/exceptions.py)：
+- 自定义异常继承自`RAGException`
+- 使用`@handle_exception`装饰器
+- 提供详细的错误信息和上下文
+
+### 配置管理
+- 使用Pydantic模型进行配置验证
+- 支持环境变量覆盖
+- 配置文件热重载
+- 类型安全的配置访问
+
+## 性能优化
+
+### 缓存策略
+- LRU缓存用于频繁访问的数据
+- 批量处理减少API调用
+- 异步操作提高并发性能
+- 智能重试机制
+
+### 监控和日志
+- 结构化日志记录
+- 性能指标收集
+- 健康检查机制
+- 错误追踪和报告
+
+## 测试规范
+
+### 测试文件组织
+- 单元测试：`tests/test_*.py`
+- 集成测试：`tests/integration/`
+- 测试配置：`test_*.py`文件
+
+### 测试原则
+- 每个函数都有对应的测试
+- 使用mock对象隔离外部依赖
+- 测试异常情况
+- 性能基准测试
+
+## 文档规范
+
+### 代码文档
+- 模块级文档字符串说明模块功能
+- 类和函数文档字符串包含参数、返回值和异常
+- 复杂逻辑添加行内注释
+- 使用Google风格的文档字符串
+
+### 项目文档
+- [README.md](mdc:README.md)包含项目概述和使用说明
+- [memory-bank/](mdc:memory-bank/)维护项目上下文和进度
+- 配置文档说明各参数含义
+- API文档说明接口用法

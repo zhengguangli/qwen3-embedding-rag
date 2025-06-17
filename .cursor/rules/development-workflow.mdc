@@ -3,3 +3,98 @@ description:
 globs:
 alwaysApply: false
 ---
+# 开发工作流指南
+
+## 开发环境设置
+
+### 依赖管理
+- 使用[pyproject.toml](mdc:pyproject.toml)管理项目依赖
+- 主要依赖：openai, pymilvus, pydantic, click, rich
+- 开发工具：pytest, black, isort, flake8, mypy
+
+### 构建和测试
+使用[Makefile](mdc:Makefile)中的命令：
+```bash
+make install    # 安装依赖
+make test       # 运行测试
+make lint       # 代码检查
+make format     # 代码格式化
+make clean      # 清理构建文件
+```
+
+## 配置管理
+
+### 配置文件优先级
+1. 环境变量（最高优先级）
+2. 命令行参数
+3. 配置文件（[rag_config.json](mdc:rag_config.json)）
+4. 默认值（最低优先级）
+
+### 配置验证
+- 使用Pydantic进行类型验证
+- 支持配置热重载
+- 环境变量自动映射
+- 配置模板生成
+
+## 开发流程
+
+### 功能开发
+1. 在[memory-bank/activeContext.md](mdc:memory-bank/activeContext.md)中记录当前工作重点
+2. 遵循服务基类模式，继承[CacheableService](mdc:rag/base.py)
+3. 使用统一的异常处理系统[exceptions.py](mdc:rag/exceptions.py)
+4. 添加完整的类型注解和文档字符串
+5. 编写对应的测试用例
+
+### 代码质量
+- 运行`make lint`检查代码质量
+- 使用`make format`格式化代码
+- 确保所有测试通过
+- 更新相关文档
+
+### 性能优化
+- 使用缓存减少重复计算
+- 批量处理提高效率
+- 异步操作提升并发性能
+- 监控关键指标
+
+## 调试和监控
+
+### 日志系统
+- 结构化日志记录
+- 不同级别的日志（DEBUG, INFO, WARNING, ERROR）
+- 性能指标收集
+- 错误追踪
+
+### 健康检查
+- 服务健康状态监控
+- API连接测试
+- 缓存状态检查
+- 性能指标报告
+
+## 部署和运维
+
+### 容器化
+- Docker镜像构建
+- 环境变量配置
+- 健康检查端点
+- 日志收集
+
+### 监控和告警
+- 性能指标监控
+- 错误率监控
+- 资源使用监控
+- 自动告警机制
+
+## 文档维护
+
+### 内存库更新
+- [memory-bank/progress.md](mdc:memory-bank/progress.md)记录项目进度
+- [memory-bank/activeContext.md](mdc:memory-bank/activeContext.md)记录当前工作重点
+- [memory-bank/systemPatterns.md](mdc:memory-bank/systemPatterns.md)记录系统架构
+- [memory-bank/techContext.md](mdc:memory-bank/techContext.md)记录技术上下文
+
+### 代码文档
+- 保持文档与代码同步
+- 使用类型注解提高代码可读性
+- 添加示例代码
+- 更新README和配置说明

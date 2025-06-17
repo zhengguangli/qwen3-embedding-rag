@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 
-from .config import RAGConfig
-from .exceptions import RAGException, handle_exception
+from src.rag.config import RAGConfig
+from src.rag.exceptions import RAGException, handle_exception
 
 
 @dataclass

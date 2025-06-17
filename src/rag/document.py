@@ -19,7 +19,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import mimetypes
 
-from .config import RAGConfig
+from src.rag.config import RAGConfig
+from src.rag.exceptions import RAGException, handle_exception
 
 logger = logging.getLogger(__name__)
 
@@ -102,30 +103,32 @@ class DocumentProcessor:
             raise
     
     def _load_single_document(self, file_path: str) -> Optional[Tuple[str, DocumentMetadata]]:
-        """加载单个文档"""
+        """加载单个文档，支持多编码尝试"""
         try:
             path = Path(file_path)
-            
             # 检查文件大小
             file_size = path.stat().st_size
             if file_size > 10 * 1024 * 1024:  # 10MB限制
                 self.logger.warning(f"文件过大，跳过: {file_path}")
                 return None
-            
             # 检测文件类型和编码
             file_type = self._detect_file_type(file_path)
             encoding = self._detect_encoding(file_path)
-            
-            # 读取内容
-            with open(file_path, "r", encoding=encoding) as f:
-                content = f.read().strip()
-            
+            # 多编码尝试
+            encodings_to_try = [encoding, "utf-8", "gbk", "latin-1"]
+            content = None
+            for enc in encodings_to_try:
+                try:
+                    with open(file_path, "r", encoding=enc) as f:
+                        content = f.read().strip()
+                    break
+                except Exception as e:
+                    self.logger.warning(f"尝试用编码{enc}读取失败: {file_path}, 错误: {e}")
             if not content:
+                self.logger.error(f"所有编码均无法读取文件，跳过: {file_path}")
                 return None
-            
             # 计算内容哈希
             content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
-            
             # 创建元数据
             metadata = DocumentMetadata(
                 file_path=str(file_path),
@@ -137,9 +140,7 @@ class DocumentProcessor:
                 word_count=len(content.split()),
                 language=self._detect_language(content)
             )
-            
             return content, metadata
-            
         except Exception as e:
             self.logger.error(f"加载文档失败 {file_path}: {str(e)}")
             return None

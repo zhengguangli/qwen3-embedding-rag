@@ -21,7 +21,8 @@ import asyncio
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .config import RAGConfig
+from src.rag.config import RAGConfig
+from src.rag.exceptions import RAGException, handle_exception
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,6 @@ class LLMService:
                 ],
                 temperature=self.config.models.llm.temperature,
                 top_p=self.config.models.llm.top_p,
-                top_k=self.config.models.llm.top_k,
                 max_tokens=self.config.models.llm.max_tokens,
                 stop=self.config.models.llm.stop
             )
@@ -192,7 +192,6 @@ class LLMService:
                 ],
                 temperature=self.config.models.llm.temperature,
                 top_p=self.config.models.llm.top_p,
-                top_k=self.config.models.llm.top_k,
                 max_tokens=self.config.models.llm.max_tokens,
                 stop=self.config.models.llm.stop,
                 stream=True

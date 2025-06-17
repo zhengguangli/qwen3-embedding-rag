@@ -20,7 +20,8 @@ from functools import lru_cache
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .config import RAGConfig
+from src.rag.config import RAGConfig
+from src.rag.exceptions import RAGException, handle_exception
 from .document import DocumentProcessor
 from .embedding import EmbeddingService
 from .reranker import RerankerService

@@ -37,9 +37,9 @@ class MockRerankerService:
         return [RerankResult(content=c, score=1.0-0.1*i, algorithm=algorithm, model="mock", processing_time=0.01, metadata={}) for i, c in enumerate(candidates)]
 
 # Patch RAGPipeline依赖
-@patch('rag.pipeline.EmbeddingService', MockEmbeddingService)
-@patch('rag.pipeline.LLMService', MockLLMService)
-@patch('rag.pipeline.RerankerService', MockRerankerService)
+@patch('src.rag.pipeline.EmbeddingService', MockEmbeddingService)
+@patch('src.rag.pipeline.LLMService', MockLLMService)
+@patch('src.rag.pipeline.RerankerService', MockRerankerService)
 def main(*_):
     config = RAGConfig.from_file('test_config.yaml')
     pipeline = RAGPipeline(config)

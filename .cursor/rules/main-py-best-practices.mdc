@@ -44,3 +44,344 @@ alwaysApply: false
 ## 参考文件
 - [main.py](mdc:main.py)
 - [pyproject.toml](mdc:pyproject.toml)
+
+# 主入口点最佳实践
+
+## 单一入口点原则
+
+### 核心原则
+- **唯一入口点**: `main.py` 是唯一的主入口点
+- **避免重复**: 其他模块不包含 `if __name__ == "__main__"` 块
+- **统一管理**: 所有CLI命令通过Click框架统一管理
+- **清晰路径**: 提供清晰的启动路径和错误处理
+
+### 实现模式
+```python
+#!/usr/bin/env python3
+"""
+Qwen3-Embedding RAG 系统主入口点
+"""
+
+import sys
+from typing import Optional
+
+def main(config_path: Optional[str] = None) -> int:
+    """主函数"""
+    try:
+        # 导入CLI模块
+        from rag.cli import cli
+        
+        # 运行CLI应用
+        cli.main()
+        return 0
+        
+    except ImportError as e:
+        print(f"导入错误: {e}")
+        print("请检查依赖是否正确安装")
+        print("运行: pip install -r requirements.txt")
+        return 1
+        
+    except Exception as e:
+        print(f"系统错误: {e}")
+        print("请检查配置和依赖")
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+## 错误处理最佳实践
+
+### 1. 导入错误处理
+```python
+try:
+    from rag.cli import cli
+except ImportError as e:
+    print(f"导入错误: {e}")
+    print("请检查依赖是否正确安装")
+    print("运行: poetry install")
+    sys.exit(1)
+```
+
+### 2. 配置错误处理
+```python
+try:
+    config = RAGConfig.from_file(config_path)
+except ValidationError as e:
+    print(f"配置验证失败: {e}")
+    print("请检查配置文件格式")
+    sys.exit(1)
+```
+
+### 3. 连接错误处理
+```python
+try:
+    milvus_client = MilvusService(config.milvus)
+    if not milvus_client.check_connection():
+        raise ConnectionError("无法连接到Milvus服务")
+except Exception as e:
+    print(f"连接失败: {e}")
+    print("请检查Milvus服务是否可用")
+    sys.exit(1)
+```
+
+## 模块导入管理
+
+### 1. 清晰的导入路径
+```python
+# 正确的导入方式
+from rag.cli import cli
+from rag.config import RAGConfig
+from rag.pipeline import Pipeline
+
+# 避免循环导入
+# 错误: from rag.main import main  # 这会导致循环导入
+```
+
+### 2. 导入验证
+```python
+def validate_imports() -> bool:
+    """验证所有必要的模块是否可以正确导入"""
+    required_modules = [
+        'rag.cli',
+        'rag.config', 
+        'rag.pipeline',
+        'rag.embedding',
+        'rag.llm',
+        'rag.milvus_service'
+    ]
+    
+    for module in required_modules:
+        try:
+            __import__(module)
+        except ImportError as e:
+            print(f"模块导入失败: {module} - {e}")
+            return False
+    
+    return True
+```
+
+### 3. 延迟导入
+```python
+def get_cli_app():
+    """延迟导入CLI应用"""
+    try:
+        from rag.cli import cli
+        return cli
+    except ImportError as e:
+        raise ImportError(f"无法导入CLI模块: {e}")
+```
+
+## CLI界面设计
+
+### 1. 统一的CLI结构
+```python
+import click
+from rich.console import Console
+
+console = Console()
+
+@click.group()
+@click.option('--config', '-c', help='配置文件路径')
+@click.option('--verbose', '-v', is_flag=True, help='详细输出')
+def cli(config, verbose):
+    """Qwen3-Embedding RAG 系统"""
+    pass
+
+@cli.command()
+def status():
+    """检查系统状态"""
+    console.print("系统状态检查...", style="bold blue")
+    # 状态检查逻辑
+
+@cli.command()
+def run():
+    """运行RAG系统"""
+    console.print("启动RAG系统...", style="bold green")
+    # 运行逻辑
+```
+
+### 2. 用户友好的错误信息
+```python
+def handle_error(func):
+    """错误处理装饰器"""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except ImportError as e:
+            console.print(f"[red]导入错误: {e}[/red]")
+            console.print("请检查依赖是否正确安装")
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]系统错误: {e}[/red]")
+            console.print("请检查配置和依赖")
+            sys.exit(1)
+    return wrapper
+```
+
+## 配置管理集成
+
+### 1. 自动配置加载
+```python
+def load_config_safely(config_path: Optional[str] = None) -> RAGConfig:
+    """安全加载配置"""
+    try:
+        if config_path:
+            return RAGConfig.from_file(config_path)
+        
+        # 自动查找默认配置文件
+        default_configs = ["rag_config.json", "config.json"]
+        for config_file in default_configs:
+            if os.path.exists(config_file):
+                console.print(f"加载配置文件: {config_file}", style="green")
+                return RAGConfig.from_file(config_file)
+        
+        # 使用内置默认值
+        console.print("使用默认配置", style="yellow")
+        return RAGConfig()
+        
+    except Exception as e:
+        console.print(f"[red]配置加载失败: {e}[/red]")
+        sys.exit(1)
+```
+
+### 2. 配置验证
+```python
+def validate_config(config: RAGConfig) -> bool:
+    """验证配置有效性"""
+    try:
+        # 验证Milvus配置
+        if not config.milvus.endpoint:
+            console.print("[red]Milvus端点未配置[/red]")
+            return False
+            
+        # 验证LLM配置
+        if not config.llm.api_key:
+            console.print("[red]LLM API密钥未配置[/red]")
+            return False
+            
+        return True
+        
+    except Exception as e:
+        console.print(f"[red]配置验证失败: {e}[/red]")
+        return False
+```
+
+## 启动流程优化
+
+### 1. 启动前检查
+```python
+def pre_startup_checks() -> bool:
+    """启动前检查"""
+    console.print("执行启动前检查...", style="bold blue")
+    
+    # 检查依赖
+    if not validate_imports():
+        return False
+    
+    # 检查配置
+    config = load_config_safely()
+    if not validate_config(config):
+        return False
+    
+    # 检查连接
+    try:
+        milvus_client = MilvusService(config.milvus)
+        if not milvus_client.check_connection():
+            console.print("[red]Milvus连接失败[/red]")
+            return False
+    except Exception as e:
+        console.print(f"[red]连接检查失败: {e}[/red]")
+        return False
+    
+    console.print("启动前检查通过", style="bold green")
+    return True
+```
+
+### 2. 优雅启动
+```python
+def graceful_startup():
+    """优雅启动"""
+    try:
+        # 启动前检查
+        if not pre_startup_checks():
+            sys.exit(1)
+        
+        # 加载配置
+        config = load_config_safely()
+        
+        # 初始化服务
+        pipeline = Pipeline(config)
+        
+        # 启动系统
+        console.print("系统启动成功", style="bold green")
+        return pipeline
+        
+    except Exception as e:
+        console.print(f"[red]启动失败: {e}[/red]")
+        sys.exit(1)
+```
+
+## 调试和日志
+
+### 1. 调试模式
+```python
+def enable_debug_mode():
+    """启用调试模式"""
+    import logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    console.print("调试模式已启用", style="yellow")
+```
+
+### 2. 错误日志
+```python
+def log_error(error: Exception, context: str = ""):
+    """记录错误日志"""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.error(f"{context}: {error}", exc_info=True)
+    console.print(f"[red]错误已记录到日志[/red]")
+```
+
+## 测试和验证
+
+### 1. 入口点测试
+```python
+def test_main_import():
+    """测试主入口点导入"""
+    try:
+        import main
+        assert hasattr(main, 'main')
+        assert callable(main.main)
+        return True
+    except ImportError:
+        return False
+```
+
+### 2. CLI测试
+```python
+def test_cli_commands():
+    """测试CLI命令"""
+    try:
+        from rag.cli import cli
+        # 测试命令是否存在
+        assert cli.commands
+        return True
+    except Exception:
+        return False
+```
+
+### 3. 配置测试
+```python
+def test_config_loading():
+    """测试配置加载"""
+    try:
+        config = load_config_safely()
+        assert config is not None
+        return True
+    except Exception:
+        return False
+```

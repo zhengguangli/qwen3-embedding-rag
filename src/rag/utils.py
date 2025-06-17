@@ -2,6 +2,7 @@ import os
 import logging
 import subprocess
 import sys
+from src.rag.exceptions import RAGException, handle_exception
 
 def setup_logging(level: str = "INFO") -> logging.Logger:
     """设置日志配置"""

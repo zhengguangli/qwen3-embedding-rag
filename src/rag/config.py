@@ -238,19 +238,27 @@ class RAGConfigModel(BaseModel):
 class RAGConfig:
     """RAG系统配置管理器"""
     
-    def __init__(self, config_file: Optional[str] = None):
+    def __init__(self, config_file: Optional[str] = None, env: Optional[str] = None):
         self.config_file = config_file
         self.config_data: Dict[str, Any] = {}
         self.config_model: Optional[RAGConfigModel] = None
         self._last_modified: Optional[float] = None
         
-        # 如果没有指定配置文件，尝试自动查找rag_config.json
+        # 检测环境变量或参数
+        self.env = env or os.getenv("RAG_ENV", "dev")
         if not config_file:
-            default_config = Path("rag_config.json")
-            if default_config.exists():
-                config_file = str(default_config)
+            # 优先查找rag_config.{env}.json
+            env_config = Path(f"rag_config.{self.env}.json")
+            if env_config.exists():
+                config_file = str(env_config)
                 self.config_file = config_file
-                logger.info(f"自动加载默认配置文件: {config_file}")
+                logger.info(f"检测到环境变量RAG_ENV={self.env}，加载环境配置文件: {config_file}")
+            else:
+                default_config = Path("rag_config.json")
+                if default_config.exists():
+                    config_file = str(default_config)
+                    self.config_file = config_file
+                    logger.info(f"加载默认配置文件: {config_file}")
         
         if config_file:
             self.load_from_file(config_file)
@@ -258,11 +266,12 @@ class RAGConfig:
             self.config_model = RAGConfigModel()
             self.config_data = self.config_model.model_dump()
         
-        # 从环境变量加载配置
+        # 从环境变量加载配置（优先级最高）
         self._load_from_env()
         
         # 验证配置
         self._validate_config()
+        logger.info(f"当前环境: {self.env}，配置文件: {self.config_file}")
     
     @classmethod
     def from_file(cls, config_file: str) -> 'RAGConfig':

@@ -3,3 +3,132 @@ description:
 globs:
 alwaysApply: false
 ---
+# API设计和交互模式
+
+## RAG系统架构
+
+### 核心组件交互
+```
+用户查询 → 嵌入服务 → 向量搜索 → 重排序 → LLM生成 → 返回答案
+```
+
+### 服务接口设计
+所有服务都遵循统一的接口模式，继承自[CacheableService](mdc:rag/base.py)：
+
+#### 嵌入服务 [embedding.py](mdc:rag/embedding.py)
+- `encode(text: str) -> List[float]` - 单个文本编码
+- `encode_batch(texts: List[str]) -> List[List[float]]` - 批量编码
+- `encode_with_metadata(text: str) -> EmbeddingResult` - 带元数据的编码
+- `health_check() -> bool` - 健康检查
+
+#### Milvus服务 [milvus_service.py](mdc:rag/milvus_service.py)
+- `search(vectors: List[List[float]], top_k: int) -> List[SearchResult]` - 向量搜索
+- `insert(vectors: List[List[float]], metadata: List[Dict]) -> bool` - 插入向量
+- `create_collection(name: str, dim: int) -> bool` - 创建集合
+- `health_check() -> bool` - 健康检查
+
+#### RAG管道 [pipeline.py](mdc:rag/pipeline.py)
+- `query(question: str, top_k: int = 5) -> QueryResult` - 完整查询流程
+- `add_documents(documents: List[Document]) -> bool` - 添加文档
+- `get_statistics() -> Dict[str, Any]` - 获取统计信息
+
+## 配置模式
+
+### 配置层次结构
+```python
+RAGConfig
+├── api (API配置)
+│   ├── openai_base_url
+│   ├── openai_api_key
+│   └── milvus_uri
+├── models (模型配置)
+│   ├── embedding (嵌入模型)
+│   ├── llm (语言模型)
+│   └── reranker (重排序模型)
+└── pipeline (管道配置)
+    ├── chunk_size
+    ├── overlap
+    └── search_params
+```
+
+### 配置验证
+使用Pydantic进行类型验证和默认值设置：
+- 必需字段验证
+- 类型转换
+- 环境变量映射
+- 配置热重载
+
+## 异常处理模式
+
+### 异常层次结构
+```python
+RAGException (基础异常)
+├── ValidationError (验证错误)
+├── APIError (API调用错误)
+├── EmbeddingError (嵌入错误)
+├── MilvusError (Milvus错误)
+└── PipelineError (管道错误)
+```
+
+### 异常处理策略
+- 使用`@handle_exception`装饰器自动转换异常
+- 提供详细的错误信息和上下文
+- 支持重试机制
+- 优雅降级处理
+
+## 缓存模式
+
+### 多层缓存策略
+1. **LRU缓存**: 用于频繁访问的嵌入向量
+2. **服务缓存**: 用于API响应和计算结果
+3. **配置缓存**: 用于配置验证结果
+
+### 缓存键生成
+```python
+def _get_cache_key(self, text: str, **kwargs) -> str:
+    key_data = {
+        "text": text,
+        "model": self.config.models.embedding.name,
+        "normalize": self.config.models.embedding.normalize
+    }
+    key_data.update(kwargs)
+    return hashlib.md5(str(sorted(key_data.items())).encode()).hexdigest()
+```
+
+## 性能优化模式
+
+### 批量处理
+- 批量嵌入生成
+- 批量向量插入
+- 并发API调用
+- 智能批处理大小
+
+### 异步处理
+- 异步API调用
+- 并发任务执行
+- 非阻塞操作
+- 性能监控
+
+### 监控指标
+- 响应时间统计
+- 缓存命中率
+- 错误率监控
+- 资源使用情况
+
+## 数据流模式
+
+### 文档处理流程
+```
+原始文档 → 分块 → 嵌入 → 存储到Milvus → 索引构建
+```
+
+### 查询处理流程
+```
+用户查询 → 查询嵌入 → 向量搜索 → 文档检索 → 重排序 → LLM生成 → 答案返回
+```
+
+### 数据格式
+- 文档：包含文本内容和元数据
+- 嵌入：浮点数向量
+- 搜索结果：包含相似度和文档信息
+- 查询结果：包含答案和来源文档
