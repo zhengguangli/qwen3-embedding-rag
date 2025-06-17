@@ -30,7 +30,7 @@
     "reranker_model": "qwen3:4b",
     "llm_model": "qwen3:4b",
     "embedding_batch_size": 32,
-    "llm_max_tokens": 2048,
+    "llm_max_tokens": 32768,
     "llm_temperature": 0.7
   },
   

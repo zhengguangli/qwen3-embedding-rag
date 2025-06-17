@@ -45,9 +45,16 @@ def main():
             try:
                 with open(args.config, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
+                    # 支持分组配置
                     for key, value in config_data.items():
                         if hasattr(config, key):
-                            setattr(config, key, value)
+                            group = getattr(config, key)
+                            if isinstance(value, dict):
+                                for subkey, subval in value.items():
+                                    if hasattr(group, subkey):
+                                        setattr(group, subkey, subval)
+                            else:
+                                setattr(config, key, value)
             except Exception as e:
                 logger.error(f"配置文件加载失败: {str(e)}")
                 return

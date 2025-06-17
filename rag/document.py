@@ -11,10 +11,11 @@ class DocumentProcessor:
     def __init__(self, config: RAGConfig):
         self.config = config
     def load_documents(self) -> List[str]:
+        """加载文档"""
         documents = []
         try:
-            logger.info(f"加载文档: {self.config.data_path_glob}")
-            for file_path in glob(self.config.data_path_glob, recursive=True):
+            logger.info(f"加载文档: {self.config.data.data_path_glob}")
+            for file_path in glob(self.config.data.data_path_glob, recursive=True):
                 if Path(file_path).is_file():
                     with open(file_path, "r", encoding="utf-8") as f:
                         content = f.read().strip()
@@ -26,9 +27,19 @@ class DocumentProcessor:
             logger.error(f"文档加载失败: {str(e)}")
             raise
     def split_documents(self, documents: List[str]) -> List[str]:
+        """分割文档为小块"""
         chunks = []
         for doc in documents:
-            chunks.extend(self._split_text(doc))
+            text = doc.strip()
+            if len(text) <= self.config.data.chunk_size:
+                chunks.append(text)
+            else:
+                start = 0
+                while start < len(text):
+                    end = start + self.config.data.chunk_size
+                    chunk = text[start:end]
+                    chunks.append(chunk)
+                    start = max(start + 1, end - self.config.data.chunk_overlap)
         logger.info(f"分块后共 {len(chunks)} 段")
         return chunks
     def _split_text(self, text: str) -> List[str]:

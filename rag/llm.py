@@ -10,17 +10,16 @@ class LLMService:
         self.config = config
         self.client = client
     def generate_answer(self, question: str, context: str) -> str:
+        """生成答案"""
         try:
             response = self.client.chat.completions.create(
-                model=self.config.llm_model,
+                model=self.config.models.llm_model,
                 messages=[
-                    {"role": "system", "content": self.config.system_prompt},
-                    {"role": "user", "content": f"问题: {question}\n上下文: {context}"}
-                ],
-                temperature=0.2,
-                max_tokens=512
+                    {"role": "system", "content": self.config.prompts.system_prompt},
+                    {"role": "user", "content": self.config.prompts.query_prompt.format(context=context, question=question)}
+                ]
             )
-            return response.choices[0].message.content.strip()
+            return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"答案生成失败: {str(e)}")
-            return "抱歉，生成答案失败。" 
+            logger.error(f"LLM生成答案失败: {str(e)}")
+            return f"抱歉，生成答案时出现错误: {str(e)}" 

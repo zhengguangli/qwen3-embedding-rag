@@ -16,8 +16,8 @@ class RAGPipeline:
     
     def _setup_services(self):
         self.openai_client = OpenAI(
-            api_key=self.config.openai_api_key,
-            base_url=self.config.openai_base_url
+            api_key=self.config.api.openai_api_key,
+            base_url=self.config.api.openai_base_url
         )
         self.doc_processor = DocumentProcessor(self.config)
         self.embedding_service = EmbeddingService(self.config, self.openai_client)
@@ -43,8 +43,8 @@ class RAGPipeline:
         candidates = self.milvus_service.search(query_embedding)
         logger.info(f"检索到 {len(candidates)} 个候选文档")
         reranked = self.reranker_service.rerank(question, candidates)
-        reranked_docs = [doc for doc, _ in reranked[:self.config.rerank_top_k]]
-        logger.info(f"重排后选取前 {self.config.rerank_top_k} 个文档")
+        reranked_docs = [doc for doc, _ in reranked[:self.config.search.rerank_top_k]]
+        logger.info(f"重排后选取前 {self.config.search.rerank_top_k} 个文档")
         context = "\n".join(reranked_docs)
         answer = self.llm_service.generate_answer(question, context)
         logger.info("处理完成")

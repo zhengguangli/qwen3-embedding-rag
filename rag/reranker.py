@@ -11,42 +11,50 @@ class RerankerService:
     def __init__(self, config: RAGConfig, client: OpenAI):
         self.config = config
         self.client = client
-    def rerank(self, query: str, documents: List[str]) -> List[Tuple[str, float]]:
-        if not documents:
+    def rerank(self, question: str, candidates: List[str]) -> List[Tuple[str, float]]:
+        """重排序候选文档"""
+        if not candidates:
             return []
-        doc_scores = []
-        with ThreadPoolExecutor(max_workers=self.config.max_workers) as executor:
-            future_to_doc = {
-                executor.submit(self._compute_score, query, doc): doc
-                for doc in documents
+        
+        with ThreadPoolExecutor(max_workers=self.config.performance.max_workers) as executor:
+            # 为每个候选文档生成重排序分数
+            future_to_candidate = {
+                executor.submit(self._calculate_relevance, question, candidate): candidate
+                for candidate in candidates
             }
-            for future in as_completed(future_to_doc):
+            
+            results = []
+            for future in as_completed(future_to_candidate):
+                candidate = future_to_candidate[future]
                 try:
                     score = future.result()
-                    doc_scores.append((future_to_doc[future], score))
+                    results.append((candidate, score))
                 except Exception as e:
                     logger.error(f"重排序失败: {str(e)}")
-                    doc_scores.append((future_to_doc[future], 0.0))
-        doc_scores.sort(key=lambda x: x[1], reverse=True)
-        return doc_scores
-    def _compute_score(self, query: str, doc: str) -> float:
-        # 这里假设用LLM API做重排序，实际可根据模型API调整
+                    results.append((candidate, 0.0))
+        
+        # 按分数降序排序
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results
+    
+    def _calculate_relevance(self, question: str, candidate: str) -> float:
+        """计算相关性分数"""
         try:
             response = self.client.chat.completions.create(
-                model=self.config.reranker_model,
+                model=self.config.models.reranker_model,
                 messages=[
-                    {"role": "system", "content": "请判断文档与查询的相关性，返回相关性分数（0-1）"},
-                    {"role": "user", "content": f"查询: {query}\n文档: {doc}\n请给出相关性分数（0-1）"}
+                    {"role": "system", "content": "你是一个文档相关性评估器。请评估给定文档与问题的相关性，返回0-1之间的分数。"},
+                    {"role": "user", "content": f"问题: {question}\n文档: {candidate}\n相关性分数(0-1):"}
                 ],
-                temperature=0.0,
-                max_tokens=8
+                temperature=0.1,
+                max_tokens=10
             )
-            score_str = response.choices[0].message.content.strip()
+            score_text = response.choices[0].message.content.strip()
             try:
-                score = float(score_str)
-            except Exception:
-                score = 0.0
-            return score
+                score = float(score_text)
+                return max(0.0, min(1.0, score))
+            except ValueError:
+                return 0.5
         except Exception as e:
-            logger.error(f"重排序分数计算失败: {str(e)}")
-            return 0.0 
+            logger.error(f"相关性计算失败: {str(e)}")
+            return 0.5 
