@@ -1,14 +1,20 @@
-import sys
+import os
 import logging
+import subprocess
+import sys
 
 def setup_logging(level: str = "INFO") -> logging.Logger:
     """设置日志配置"""
+    # 创建日志目录
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    
     # 设置根日志级别
     logging.basicConfig(
         level=getattr(logging, level.upper()),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('rag_system.log', encoding='utf-8'),
+            logging.FileHandler(os.path.join(log_dir, 'rag_system.log'), encoding='utf-8'),
             logging.StreamHandler()
         ]
     )

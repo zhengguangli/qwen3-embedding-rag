@@ -1,134 +1,192 @@
 ---
-description:
-globs:
+description: 
+globs: 
 alwaysApply: false
 ---
-# 故障排除指南
+# RAG 系统故障排除指南
 
 ## 常见问题及解决方案
 
-### 1. API Key 相关错误
+### 1. Milvus 连接问题
 
-**错误信息**: `'RAGConfig' object has no attribute 'OPENAI_API_KEY'`
-
-**解决方案**:
-- 确保设置了环境变量：`export OPENAI_API_KEY='your_key_here'`
-- 检查 [main.py](mdc:main.py) 中的 `RAGConfig` 类是否包含 `OPENAI_API_KEY` 属性
-
-### 2. 模型加载失败
-
-**错误信息**: `Failed to load models`
-
-**可能原因**:
-- 网络连接问题
-- 模型名称错误
-- 内存不足
-
-**解决方案**:
-- 检查网络连接
-- 验证模型名称是否正确
-- 增加系统内存或使用更小的模型
-- 检查 `trust_remote_code=True` 参数
-
-### 3. Milvus 连接失败
-
-**错误信息**: `Failed to initialize clients`
-
-**解决方案**:
-- 检查 Milvus 服务是否运行
-- 验证 `MILVUS_URI` 配置是否正确
-- 检查防火墙设置
-
-### 4. 文档加载失败
-
-**错误信息**: `Error loading documents`
-
-**解决方案**:
-- 检查 `DATA_PATH_GLOB` 路径是否正确
-- 确保文档文件存在且可读
-- 检查文件编码格式
-
-### 5. 内存不足
-
-**症状**: 程序运行缓慢或崩溃
-
-**解决方案**:
-- 减少 `BATCH_SIZE` 配置
-- 减少 `CHUNK_SIZE` 配置
-- 使用 CPU 而不是 GPU
-- 增加系统内存
-
-### 6. GPU 相关问题
-
-**错误信息**: CUDA 相关错误
-
-**解决方案**:
-- 检查 CUDA 驱动是否正确安装
-- 验证 PyTorch 是否支持 CUDA
-- 在 [main.py](mdc:main.py) 中设置 `DEVICE = "cpu"`
-
-## 性能优化问题
-
-### 1. 检索速度慢
-
-**解决方案**:
-- 检查 Milvus 索引配置
-- 优化向量维度
-- 使用更快的嵌入模型
-
-### 2. 重排序速度慢
-
-**解决方案**:
-- 减少 `SEARCH_LIMIT` 配置
-- 使用更小的重排序模型
-- 启用批处理
-
-### 3. 内存使用过高
-
-**解决方案**:
-- 减少缓存大小
-- 使用更小的模型
-- 优化文档分块策略
-
-## 调试步骤
-
-### 1. 启用详细日志
-在 [main.py](mdc:main.py) 中修改日志级别：
-```python
-logging.basicConfig(level=logging.DEBUG)
+#### 问题：连接失败
+```
+错误信息：Connection refused 或 Timeout
 ```
 
-### 2. 检查配置
-在程序开始时打印配置信息：
-```python
-logger.info(f"Device: {config.DEVICE}")
-logger.info(f"Model: {config.EMBEDDING_MODEL}")
+**解决方案：**
+- 检查 Milvus 服务是否启动
+- 验证连接地址：[config.json](mdc:config.json) 中的 `milvus_uri`
+- 确认网络连接和防火墙设置
+- 查看 Milvus 服务日志
+
+#### 问题：维度不匹配
+```
+错误信息：Dimension mismatch 或 ParamError
 ```
 
-### 3. 分步测试
-分别测试各个组件：
-- 测试模型加载
-- 测试文档处理
-- 测试向量检索
-- 测试答案生成
+**解决方案：**
+- 检查 [rag/config.py](mdc:rag/config.py) 中的 `embedding_dim` 设置
+- 确认模型的实际输出维度
+- 使用 `--force-recreate` 参数重建集合
+
+### 2. 模型加载问题
+
+#### 问题：Ollama 模型未找到
+```
+错误信息：Model not found 或 404 Not Found
+```
+
+**解决方案：**
+- 确认 Ollama 服务正在运行
+- 检查模型名称是否正确
+- 运行 `ollama list` 查看可用模型
+- 使用 `ollama pull` 下载所需模型
+
+#### 问题：API 调用失败
+```
+错误信息：HTTP 错误或连接超时
+```
+
+**解决方案：**
+- 检查 Ollama 服务地址和端口
+- 确认网络连接正常
+- 查看 [rag/utils.py](mdc:rag/utils.py) 中的日志配置
+- 尝试直接调用 API 测试连接
+
+### 3. 文档处理问题
+
+#### 问题：文档加载失败
+```
+错误信息：File not found 或 Permission denied
+```
+
+**解决方案：**
+- 检查文档路径配置：[config.json](mdc:config.json) 中的 `data_path`
+- 确认文件存在且有读取权限
+- 验证文件格式是否正确（Markdown）
+- 查看 [rag/document.py](mdc:rag/document.py) 中的错误处理
+
+#### 问题：分块处理异常
+```
+错误信息：Memory error 或 Processing failed
+```
+
+**解决方案：**
+- 减少批处理大小：[rag/config.py](mdc:rag/config.py) 中的 `batch_size`
+- 调整分块大小：`chunk_size` 和 `chunk_overlap`
+- 检查可用内存
+- 使用更小的文档进行测试
+
+### 4. 性能问题
+
+#### 问题：处理速度慢
+**解决方案：**
+- 增加并发数：[rag/config.py](mdc:rag/config.py) 中的 `max_workers`
+- 启用缓存机制
+- 优化批处理大小
+- 检查网络延迟
+
+#### 问题：内存使用过高
+**解决方案：**
+- 减少批处理大小
+- 降低并发数
+- 定期清理缓存
+- 使用流式处理
+
+### 5. 输出问题
+
+#### 问题：答案文件未生成
+**解决方案：**
+- 检查 `answers/` 目录是否存在
+- 确认文件写入权限
+- 查看 [rag/main.py](mdc:rag/main.py) 中的文件保存逻辑
+- 检查磁盘空间
+
+#### 问题：日志文件过大
+**解决方案：**
+- 调整日志级别：[rag/utils.py](mdc:rag/utils.py)
+- 定期清理日志文件
+- 使用日志轮转
+- 只保留必要的日志信息
+
+## 调试技巧
+
+### 1. 日志分析
+```bash
+# 查看最新日志
+tail -f logs/rag_system.log
+
+# 查看错误日志
+grep ERROR logs/rag_system.log
+
+# 查看特定组件的日志
+grep "rag.pipeline" logs/rag_system.log
+```
+
+### 2. 配置验证
+```python
+# 在 [rag/main.py](mdc:rag/main.py) 中添加配置验证
+config.print_config()  # 打印所有配置项
+```
+
+### 3. 组件测试
+```python
+# 单独测试各个组件
+from rag.config import RAGConfig
+from rag.embedding import EmbeddingService
+
+config = RAGConfig()
+embedding_service = EmbeddingService(config, client)
+result = embedding_service.encode("test text")
+print(f"Embedding dimension: {len(result)}")
+```
+
+### 4. 性能监控
+```python
+# 添加性能监控代码
+import time
+
+start_time = time.time()
+# 执行操作
+elapsed_time = time.time() - start_time
+logger.info(f"Operation took {elapsed_time:.2f} seconds")
+```
 
 ## 环境检查清单
 
-在运行程序前，请检查：
+### 1. 系统要求
+- [ ] Python 3.8+ 已安装
+- [ ] 虚拟环境已激活
+- [ ] 依赖包已安装：[requirements.txt](mdc:requirements.txt)
 
-- [ ] Python 版本 >= 3.12
-- [ ] 所有依赖包已安装
-- [ ] 环境变量已设置
+### 2. 服务状态
+- [ ] Ollama 服务正在运行
 - [ ] Milvus 服务正在运行
-- [ ] 文档数据已下载
 - [ ] 网络连接正常
-- [ ] 有足够的内存和存储空间
+
+### 3. 配置检查
+- [ ] [config.json](mdc:config.json) 配置正确
+- [ ] API 地址和端口正确
+- [ ] 模型名称正确
+- [ ] 文档路径存在
+
+### 4. 权限检查
+- [ ] 文件读取权限
+- [ ] 目录写入权限
+- [ ] 网络访问权限
 
 ## 获取帮助
 
-如果遇到其他问题：
+### 1. 日志文件位置
+- 系统日志：`logs/rag_system.log`
+- 答案文件：`answers/` 目录
 
-1. 检查日志输出中的详细错误信息
-2. 查看相关组件的官方文档
-3. 在 GitHub Issues 中搜索类似问题
-4. 联系项目维护者
+### 2. 配置文件
+- 主配置：[config.json](mdc:config.json)
+- 项目配置：[pyproject.toml](mdc:pyproject.toml)
+
+### 3. 文档资源
+- 项目说明：[README.md](mdc:README.md)
+- 代码注释和文档字符串
+- 官方文档和社区资源

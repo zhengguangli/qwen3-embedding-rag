@@ -1,0 +1,92 @@
+# RAG系统配置文件模板
+# 基于Qwen3 Embedding和Milvus向量数据库的检索增强生成系统
+version: "1.0.0"
+description: "检索增强生成系统配置模板"
+
+# API相关配置
+api:
+  # OpenAI兼容API配置
+  openai_api_key: ""  # 从环境变量OPENAI_API_KEY读取
+  openai_base_url: "http://10.172.10.103:11434/v1"  # 从环境变量OPENAI_BASE_URL读取
+  timeout: 30  # API超时时间(秒)
+  max_retries: 3  # 最大重试次数
+  retry_delay: 1.0  # 重试延迟(秒)
+
+# Milvus向量数据库配置
+database:
+  milvus_uri: "http://10.172.10.100:19530"  # 从环境变量MILVUS_URI读取
+  collection_name: "qwen3_embedding_rag"  # 从环境变量MILVUS_COLLECTION读取
+  embedding_dim: 1024  # 嵌入向量维度
+  metric_type: "IP"  # 距离度量类型: IP(内积), L2(欧几里得), COSINE(余弦)
+  consistency_level: "Strong"  # 一致性级别: Strong, Bounded, Eventually, Session
+  index_type: "IVF_FLAT"  # 索引类型: IVF_FLAT, IVF_SQ8, HNSW等
+  nlist: 1024  # 聚类数量
+  nprobe: 16  # 搜索聚类数
+
+# AI模型配置
+models:
+  embedding_model: "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"  # 嵌入模型
+  reranker_model: "qwen3:4b"  # 重排序模型
+  llm_model: "qwen3:4b"  # 大语言模型
+  embedding_batch_size: 32  # 嵌入批处理大小
+  llm_max_tokens: 2048  # LLM最大token数
+  llm_temperature: 0.7  # LLM温度参数(0.0-2.0)
+
+# 数据处理配置
+data:
+  data_path_glob: "milvus_docs/en/faq/*.md"  # 数据文件路径模式
+  chunk_size: 1000  # 文本分块大小
+  chunk_overlap: 200  # 分块重叠大小(必须小于chunk_size)
+  supported_formats: [".md", ".txt", ".pdf"]  # 支持的文件格式
+  encoding: "utf-8"  # 文件编码
+
+# 搜索相关配置
+search:
+  search_limit: 10  # 搜索结果数量限制
+  rerank_top_k: 3  # 重排序top-k(不能大于search_limit)
+  similarity_threshold: 0.7  # 相似度阈值(0.0-1.0)
+  enable_rerank: true  # 是否启用重排序
+  enable_hybrid_search: false  # 是否启用混合搜索
+
+# 性能优化配置
+performance:
+  cache_size: 1000  # 缓存大小
+  max_workers: 4  # 最大工作线程数
+  batch_size: 32  # 批处理大小
+  enable_gpu: false  # 是否启用GPU
+  gpu_memory_fraction: 0.8  # GPU内存使用比例(0.1-1.0)
+
+# 日志配置
+logging:
+  log_level: "INFO"  # 从环境变量LOG_LEVEL读取
+  log_file: "logs/rag_system.log"  # 日志文件路径
+  max_log_size: "10MB"  # 最大日志文件大小
+  backup_count: 5  # 备份文件数量
+  log_format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # 日志格式
+
+# 输出配置
+output:
+  output_dir: "answers"  # 输出目录
+  save_intermediate_results: true  # 是否保存中间结果
+  include_metadata: true  # 是否包含元数据
+  output_format: "txt"  # 输出格式
+
+# 提示词配置
+prompts:
+  system_prompt: "你是一个专业的AI助手，请基于提供的上下文信息准确回答问题。如果上下文中没有相关信息，请明确说明。"
+  query_prompt: "基于以下上下文信息回答问题：\n\n{context}\n\n问题：{question}\n\n答案："
+  rerank_prompt: "请对以下候选答案进行重新排序，选择最相关的答案：\n\n{answers}\n\n问题：{question}"
+
+# 安全配置
+security:
+  enable_ssl_verification: true  # 是否启用SSL验证
+  api_key_rotation_days: 30  # API密钥轮换天数
+  max_request_size: "10MB"  # 最大请求大小
+  rate_limit_per_minute: 60  # 每分钟请求限制
+
+# 监控配置
+monitoring:
+  enable_metrics: true  # 是否启用指标收集
+  metrics_port: 8000  # 指标服务端口
+  health_check_interval: 30  # 健康检查间隔(秒)
+  performance_monitoring: true  # 是否启用性能监控 

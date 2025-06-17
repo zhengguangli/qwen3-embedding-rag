@@ -6,6 +6,7 @@ RAG (检索增强生成) 系统主程序
 
 import argparse
 import json
+import os
 from datetime import datetime
 import sys
 from .config import RAGConfig
@@ -14,6 +15,12 @@ from .utils import setup_logging, check_dependencies
 
 # 设置日志
 logger = setup_logging()
+
+def ensure_output_dirs():
+    """确保输出目录存在"""
+    dirs = ["answers", "logs"]
+    for dir_name in dirs:
+        os.makedirs(dir_name, exist_ok=True)
 
 def main():
     """主函数"""
@@ -26,6 +33,9 @@ def main():
     args = parser.parse_args()
 
     try:
+        # 确保输出目录存在
+        ensure_output_dirs()
+        
         # 检查依赖
         check_dependencies()
         
@@ -59,14 +69,15 @@ def main():
             answer = pipeline.run(args.question)
             
             # 保存答案到文件
-            with open(args.output_file, "w", encoding="utf-8") as f:
+            output_path = os.path.join("answers", args.output_file)
+            with open(output_path, "w", encoding="utf-8") as f:
                 f.write(f"问题: {args.question}\n")
                 f.write(f"答案: {answer}\n")
                 f.write(f"\n生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             
             # 在终端显示简短摘要
             print(f"\n问题: {args.question}")
-            print(f"答案已保存到: {args.output_file}")
+            print(f"答案已保存到: {output_path}")
             print(f"答案长度: {len(answer)} 字符")
             print(f"答案摘要: {answer[:200]}{'...' if len(answer) > 200 else ''}")
             
@@ -87,12 +98,13 @@ def main():
                     # 保存答案到文件
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     output_file = f"answer_{timestamp}.txt"
-                    with open(output_file, "w", encoding="utf-8") as f:
+                    output_path = os.path.join("answers", output_file)
+                    with open(output_path, "w", encoding="utf-8") as f:
                         f.write(f"问题: {question}\n")
                         f.write(f"答案: {answer}\n")
                         f.write(f"\n生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                     
-                    print(f"\n答案已保存到: {output_file}")
+                    print(f"\n答案已保存到: {output_path}")
                     print(f"答案摘要: {answer[:200]}{'...' if len(answer) > 200 else ''}")
                     
                 except KeyboardInterrupt:
