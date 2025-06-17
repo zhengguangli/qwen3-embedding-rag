@@ -3,7 +3,7 @@ description:
 globs:
 alwaysApply: false
 ---
-# 开发指南
+# RAG 系统开发指南
 
 ## 环境设置
 
@@ -29,72 +29,249 @@ unzip -q milvus_docs_2.4.x_en.zip -d milvus_docs
 
 ## 代码规范
 
-### 1. 日志记录
-- 使用 `logger.info()` 记录重要操作
-- 使用 `logger.error()` 记录错误信息
-- 避免使用 `print()` 语句
+### Python代码风格
+- 遵循PEP 8规范
+- 使用black进行代码格式化
+- 使用isort进行导入排序
+- 使用mypy进行类型检查
+- 使用flake8进行代码风格检查
 
-### 2. 异常处理
-- 所有外部 API 调用都要有异常处理
-- 使用 try-except 块包装关键操作
-- 提供有意义的错误信息
+### 类型注解
+- 所有函数和类方法必须有类型注解
+- 使用Pydantic进行数据验证
+- 复杂类型使用TypeAlias定义
+
+### 文档字符串
+- 所有公共API必须有文档字符串
+- 使用Google风格的文档字符串
+- 包含参数、返回值和异常说明
+
+## 项目结构
+
+### 核心模块
+```
+rag/
+├── __init__.py          # 包初始化
+├── cli.py              # CLI命令定义
+├── config.py           # 配置管理
+├── document.py         # 文档处理
+├── embedding.py        # 嵌入服务
+├── llm.py             # LLM服务
+├── milvus_service.py  # Milvus服务
+├── pipeline.py        # 主管道
+├── reranker.py        # 重排序服务
+└── utils.py           # 工具函数
+```
+
+### 配置文件
+- `rag_config.json` - 主配置文件（默认自动加载）
+- `rag_config.remote_milvus.json` - 远程Milvus配置模板
+- `config.template.yaml` - 配置模板
+
+### 入口点管理
+- `main.py` - 唯一的主入口点
+- 其他模块不包含 `if __name__ == "__main__"` 块
+- CLI命令通过Click框架统一管理
+
+## 配置管理最佳实践
+
+### 1. 配置加载优先级
+1. 命令行参数 (--config)
+2. 环境变量
+3. 默认配置文件 (rag_config.json)
+4. 内置默认值
+
+### 2. 配置验证
+```python
+from pydantic import BaseModel, Field
+
+class MilvusConfig(BaseModel):
+    endpoint: str = Field(..., description="Milvus连接端点")
+    username: str = Field(default="root", description="用户名")
+    password: str = Field(default="milvus", description="密码")
+```
+
+### 3. 自动配置加载
+```python
+def load_config(config_path: Optional[str] = None) -> RAGConfig:
+    if config_path:
+        return RAGConfig.from_file(config_path)
+    
+    # 自动查找默认配置文件
+    default_configs = ["rag_config.json", "config.json"]
+    for config_file in default_configs:
+        if os.path.exists(config_file):
+            return RAGConfig.from_file(config_file)
+    
+    # 使用内置默认值
+    return RAGConfig()
+```
+
+## 错误处理模式
+
+### 1. 导入错误处理
+```python
+try:
+    from rag.cli import cli
+except ImportError as e:
+    print(f"导入错误: {e}")
+    print("请检查依赖是否正确安装")
+    sys.exit(1)
+```
+
+### 2. 配置错误处理
+```python
+try:
+    config = RAGConfig.from_file(config_path)
+except ValidationError as e:
+    print(f"配置验证失败: {e}")
+    print("请检查配置文件格式")
+    sys.exit(1)
+```
+
+### 3. 连接错误处理
+```python
+try:
+    milvus_client = MilvusService(config.milvus)
+    milvus_client.check_connection()
+except Exception as e:
+    print(f"连接失败: {e}")
+    print("请检查Milvus服务是否可用")
+    sys.exit(1)
+```
+
+## 测试策略
+
+### 1. 单元测试
+- 测试每个服务组件的核心功能
+- 使用Mock模拟外部依赖
+- 覆盖正常和异常情况
+
+### 2. 集成测试
+- 测试完整的RAG流程
+- 验证组件间的协作
+- 测试配置加载和验证
+
+### 3. 入口点测试
+```python
+def test_main_import():
+    """测试主入口点导入"""
+    try:
+        import main
+        assert hasattr(main, 'main')
+    except ImportError:
+        pytest.fail("主入口点导入失败")
+```
+
+## 性能优化
+
+### 1. 缓存策略
+- 使用LRU缓存减少重复计算
+- 缓存嵌入向量避免重复嵌入
+- 缓存查询结果提升响应速度
+
+### 2. 批量处理
+- 批量嵌入处理多个文本
+- 批量存储向量到数据库
+- 并发处理提升吞吐量
+
+### 3. 异步处理
+- 使用async/await进行异步操作
+- 避免阻塞IO操作
+- 提升并发处理能力
+
+## 远程连接管理
+
+### 1. 连接配置
+```json
+{
+  "milvus": {
+    "endpoint": "localhost:19530",
+    "username": "root",
+    "password": "milvus"
+  }
+}
+```
+
+### 2. 连接检测
+```python
+def check_connection(self) -> bool:
+    """检查Milvus连接状态"""
+    try:
+        self.client.list_collections()
+        return True
+    except Exception:
+        return False
+```
+
+### 3. 错误重试
+```python
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+def connect_with_retry(self):
+    """带重试的连接方法"""
+    return self.client.connect()
+```
+
+## 代码质量保证
+
+### 1. 预提交检查
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/psf/black
+    rev: 23.0.0
+    hooks:
+      - id: black
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+```
+
+### 2. 持续集成
+- 自动化测试运行
+- 代码覆盖率检查
+- 类型检查验证
+- 代码风格检查
+
+### 3. 质量门禁
+- 测试覆盖率 > 80%
+- 类型检查 100% 通过
+- 代码风格 100% 符合规范
+- 无严重安全漏洞
+
+## 部署和运维
+
+### 1. 本地开发
+```bash
+# 安装依赖
+poetry install
+
+# 运行测试
+poetry run pytest
+
+# 代码格式化
+poetry run black .
+poetry run isort .
+
+# 类型检查
+poetry run mypy .
+```
+
+### 2. 生产部署
+- 使用Docker容器化部署
+- 配置环境变量管理敏感信息
+- 设置监控和日志收集
+- 配置健康检查和自动恢复
 
 ### 3. 配置管理
-- 所有配置项都在 `RAGConfig` 类中定义
-- 使用环境变量获取敏感信息
-- 提供合理的默认值
-
-## 性能优化建议
-
-### 1. 模型加载
-- 使用 `trust_remote_code=True` 参数
-- 自动检测并使用 GPU
-- 模型加载后设置为 eval 模式
-
-### 2. 缓存策略
-- 使用 `@lru_cache` 装饰器缓存频繁调用的函数
-- 合理设置缓存大小
-- 定期清理缓存
-
-### 3. 批处理
-- 使用批处理进行向量编码
-- 合理设置批处理大小
-- 使用进度条显示处理进度
-
-## 调试技巧
-
-### 1. 日志级别
-可以通过修改 [main.py](mdc:main.py) 中的日志级别来获取更详细的信息：
-```python
-logging.basicConfig(level=logging.DEBUG)
-```
-
-### 2. 配置调试
-在 `RAGConfig` 类中添加调试信息：
-```python
-logger.info(f"Using device: {self.DEVICE}")
-logger.info(f"Chunk size: {self.CHUNK_SIZE}")
-```
-
-### 3. 性能监控
-添加性能监控代码：
-```python
-import time
-start_time = time.time()
-# ... 执行操作
-logger.info(f"Operation took {time.time() - start_time:.2f} seconds")
-```
-
-## 扩展开发
-
-### 1. 添加新的嵌入模型
-在 `RAGConfig` 中修改 `EMBEDDING_MODEL` 参数
-
-### 2. 添加新的重排序模型
-在 `RAGConfig` 中修改 `RERANKER_MODEL` 参数
-
-### 3. 修改文档处理策略
-在 `_load_and_split_docs()` 方法中实现自定义分块逻辑
-
-### 4. 添加新的检索策略
-在 `retrieve()` 方法中实现自定义检索逻辑
+- 使用环境特定的配置文件
+- 敏感信息通过环境变量管理
+- 配置版本控制和备份
+- 配置变更审计和回滚

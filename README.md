@@ -312,3 +312,21 @@ make all
 ---
 
 **注意**: 这是一个开发中的项目，API可能会发生变化。请查看[CHANGELOG](CHANGELOG.md)了解最新更新。
+
+## 配置文件命名规范
+
+- **主配置文件**：`rag_config.json`
+  - 推荐用于生产或默认环境。
+- **远程Milvus配置模板**：`rag_config.remote_milvus.json`
+  - 推荐用于远程Milvus部署场景，可复制为主配置后使用。
+- **本地/开发/测试环境**：可命名为 `rag_config.dev.json`、`rag_config.test.json`、`rag_config.local.json` 等。
+  - 便于多环境切换和管理。
+
+> 启动时可通过 `-c` 或 `--config` 参数指定配置文件路径，例如：
+> ```bash
+> python main.py --config rag_config.remote_milvus.json status
+> ```
+
+## 其他说明
+- 所有配置模板均可根据实际需求进行扩展和调整。
+- 配置项详细说明请参考 `docs/configuration.md` 或内嵌注释。

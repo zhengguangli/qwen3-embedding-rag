@@ -8,22 +8,29 @@ Milvus服务模块
 - 错误处理和重试
 - 性能监控
 - 数据一致性保证
+- 统一服务接口
 """
 
 import time
 import hashlib
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Union
 from dataclasses import dataclass
-import logging
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
 
 from pymilvus import MilvusClient, connections
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from pymilvus.milvus_client.index import IndexParams
 
 from .config import RAGConfig
+from .base import BaseService
+from .exceptions import (
+    MilvusConnectionError,
+    MilvusCollectionError, 
+    MilvusIndexError,
+    ValidationError,
+    handle_exception
+)
 
-logger = logging.getLogger(__name__)
 
 @dataclass
 class SearchResult:
@@ -32,56 +39,152 @@ class SearchResult:
     score: float
     metadata: Dict[str, Any]
     id: str
+    rank: int
+    processing_time: float
 
-class MilvusService:
-    """增强的Milvus服务"""
+
+@dataclass
+class InsertResult:
+    """插入结果数据类"""
+    success: bool
+    inserted_count: int
+    failed_count: int
+    processing_time: float
+    errors: List[str]
+
+
+class MilvusService(BaseService):
+    """增强的Milvus服务
+    
+    提供企业级向量数据库功能，支持：
+    - 自动连接管理和重连
+    - 批量操作和性能优化
+    - 健康检查和故障检测
+    - 详细的监控和统计
+    """
     
     def __init__(self, config: RAGConfig):
-        self.config = config
-        self.logger = logging.getLogger(__name__)
+        super().__init__(config, "milvus")
         
-        # 性能统计
-        self._stats = {
-            "total_searches": 0,
-            "successful_searches": 0,
-            "failed_searches": 0,
-            "total_inserts": 0,
-            "successful_inserts": 0,
-            "failed_inserts": 0,
-            "total_processing_time": 0.0,
-            "average_search_time": 0.0
-        }
+        self.client: Optional[MilvusClient] = None
+        self._connection_alias = "rag_default"
         
-        # 连接池
-        self._connection_pool = {}
-        self._max_connections = 5
-        
-        # 初始化客户端
-        self._init_client()
-        
-        # 线程池用于并发操作
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        # 验证必需配置
+        self.validate_config([
+            "database.endpoint",
+            "database.collection_name",
+            "database.embedding_dim"
+        ])
     
-    def _init_client(self):
-        """初始化Milvus客户端"""
+    def _initialize(self) -> None:
+        """初始化Milvus服务"""
         try:
-            # 建立连接
-            connections.connect(
-                alias="default",
-                host=self.config.database.host,
-                port=self.config.database.port
-            )
+            # 初始化客户端连接
+            self._init_client()
             
-            self.client = MilvusClient(
-                uri=f"{self.config.database.host}:{self.config.database.port}",
-                token=self.config.database.token if hasattr(self.config.database, 'token') else None
-            )
+            # 测试连接
+            self._test_connection()
             
-            self.logger.info(f"Milvus客户端初始化成功: {self.config.database.host}:{self.config.database.port}")
+            self.logger.info("Milvus服务初始化成功")
             
         except Exception as e:
-            self.logger.error(f"Milvus客户端初始化失败: {str(e)}")
-            raise
+            raise MilvusConnectionError(
+                f"Milvus服务初始化失败: {str(e)}",
+                endpoint=self._get_endpoint()
+            )
+    
+    def _get_endpoint(self) -> str:
+        """获取连接端点"""
+        # 优先使用endpoint，其次milvus_uri，最后host+port
+        if hasattr(self.config.database, 'endpoint') and self.config.database.endpoint:
+            return self.config.database.endpoint
+        elif hasattr(self.config.database, 'milvus_uri') and self.config.database.milvus_uri:
+            return self.config.database.milvus_uri
+        elif hasattr(self.config.database, 'host') and self.config.database.host:
+            host = self.config.database.host
+            port = getattr(self.config.database, 'port', 19530)
+            return f"http://{host}:{port}"
+        else:
+            raise ValidationError("未找到有效的Milvus连接配置")
+    
+    def _parse_endpoint(self, endpoint: str) -> Tuple[str, int]:
+        """解析端点为host和port"""
+        try:
+            # 移除协议前缀
+            uri = endpoint
+            for prefix in ['http://', 'https://', 'tcp://', 'unix://']:
+                if uri.startswith(prefix):
+                    uri = uri[len(prefix):]
+                    break
+            
+            # 解析host和port
+            if ':' in uri:
+                host, port_str = uri.split(':', 1)
+                port = int(port_str)
+            else:
+                host = uri
+                port = 19530
+            
+            return host, port
+            
+        except Exception as e:
+            raise ValidationError(f"无效的端点格式: {endpoint}")
+    
+    def _init_client(self) -> None:
+        """初始化Milvus客户端"""
+        try:
+            endpoint = self._get_endpoint()
+            host, port = self._parse_endpoint(endpoint)
+            
+            self.logger.info(f"连接Milvus服务器: {host}:{port}")
+            
+            # 建立连接
+            connections.connect(
+                alias=self._connection_alias,
+                host=host,
+                port=port
+            )
+            
+            # 创建客户端
+            self.client = MilvusClient(
+                uri=endpoint,
+                token=getattr(self.config.database, 'token', None)
+            )
+            
+            self.logger.info(f"Milvus客户端连接成功: {endpoint}")
+            
+        except Exception as e:
+            raise MilvusConnectionError(
+                f"无法连接到Milvus服务器: {str(e)}",
+                endpoint=self._get_endpoint()
+            )
+    
+    def _test_connection(self) -> None:
+        """测试连接"""
+        try:
+            if not self.client:
+                raise MilvusConnectionError("客户端未初始化")
+            
+            # 尝试列出集合
+            collections = self.client.list_collections()
+            self.logger.debug(f"连接测试成功，发现 {len(collections)} 个集合")
+            
+        except Exception as e:
+            raise MilvusConnectionError(f"连接测试失败: {str(e)}")
+    
+    def health_check(self) -> bool:
+        """健康检查"""
+        try:
+            if not self.client:
+                return False
+            
+            # 简单的连接测试
+            self._test_connection()
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"健康检查失败: {str(e)}")
+            return False
     
     @retry(
         stop=stop_after_attempt(3),
@@ -89,136 +192,210 @@ class MilvusService:
         retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
     def setup_collection(self, force_recreate: bool = False) -> bool:
-        """设置集合"""
-        try:
-            collection_name = self.config.database.collection_name
+        """设置集合
+        
+        Args:
+            force_recreate: 是否强制重建集合
             
-            # 强制重建
-            if force_recreate:
-                try:
-                    self.client.drop_collection(collection_name)
-                    self.logger.info(f"删除集合: {collection_name}")
-                except Exception as e:
-                    self.logger.warning(f"删除集合失败（可能不存在）: {str(e)}")
+        Returns:
+            设置是否成功
             
-            # 检查集合是否存在
-            if not self.client.has_collection(collection_name):
-                # 创建集合
-                self.client.create_collection(
-                    collection_name=collection_name,
-                    dimension=self.config.database.embedding_dim,
-                    metric_type=self.config.database.metric_type,
-                    consistency_level=self.config.database.consistency_level,
-                    properties={
-                        "collection.ttl.seconds": self.config.database.ttl_seconds if hasattr(self.config.database, 'ttl_seconds') else 0
-                    }
-                )
-                self.logger.info(f"创建集合: {collection_name}")
+        Raises:
+            MilvusCollectionError: 集合操作失败
+        """
+        with self._measure_time("setup_collection"):
+            try:
+                collection_name = self.config.database.collection_name
                 
-                # 创建索引
-                self._create_index(collection_name)
-            else:
-                self.logger.info(f"集合已存在: {collection_name}")
+                # 强制重建
+                if force_recreate:
+                    try:
+                        self.client.drop_collection(collection_name)
+                        self.logger.info(f"删除集合: {collection_name}")
+                    except Exception as e:
+                        self.logger.warning(f"删除集合失败（可能不存在）: {str(e)}")
                 
-                # 检查索引是否存在
-                if not self.client.has_index(collection_name):
+                # 检查集合是否存在
+                if not self.client.has_collection(collection_name):
+                    self._create_collection(collection_name)
                     self._create_index(collection_name)
-            
-            return True
+                else:
+                    self.logger.info(f"集合已存在: {collection_name}")
+                
+                return True
+                
+            except Exception as e:
+                raise MilvusCollectionError(
+                    f"设置集合失败: {str(e)}",
+                    collection_name=self.config.database.collection_name
+                )
+    
+    def _create_collection(self, collection_name: str) -> None:
+        """创建集合"""
+        try:
+            self.client.create_collection(
+                collection_name=collection_name,
+                dimension=self.config.database.embedding_dim,
+                metric_type=self.config.database.metric_type,
+                consistency_level=self.config.database.consistency_level,
+                properties={
+                    "collection.ttl.seconds": getattr(self.config.database, 'ttl_seconds', 0)
+                }
+            )
+            self.logger.info(f"创建集合成功: {collection_name}")
             
         except Exception as e:
-            self.logger.error(f"设置集合失败: {str(e)}")
-            raise
+            raise MilvusCollectionError(
+                f"创建集合失败: {str(e)}",
+                collection_name=collection_name
+            )
     
-    def _create_index(self, collection_name: str):
+    def _create_index(self, collection_name: str) -> None:
         """创建索引"""
         try:
-            index_params = {
+            index_params = IndexParams({
                 "index_type": self.config.database.index_type,
                 "metric_type": self.config.database.metric_type,
                 "params": {
                     "nlist": self.config.database.nlist,
-                    "m": self.config.database.m if hasattr(self.config.database, 'm') else 4,
-                    "nbits": self.config.database.nbits if hasattr(self.config.database, 'nbits') else 8
+                    "m": getattr(self.config.database, "m", 4),
+                    "nbits": getattr(self.config.database, "nbits", 8)
                 }
-            }
+            })
             
             self.client.create_index(
                 collection_name=collection_name,
                 field_name="embedding",
                 index_params=index_params
             )
-            self.logger.info(f"创建索引: {collection_name}")
+            self.logger.info(f"创建索引成功: {collection_name}")
             
         except Exception as e:
-            self.logger.error(f"创建索引失败: {str(e)}")
-            raise
+            raise MilvusIndexError(
+                f"创建索引失败: {str(e)}",
+                index_type=self.config.database.index_type
+            )
     
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
-    def insert_data(self, chunks: List[str], embeddings: List[List[float]], metadata: Optional[List[Dict[str, Any]]] = None) -> bool:
-        """插入数据"""
+    def insert_data(
+        self, 
+        chunks: List[str], 
+        embeddings: List[List[float]], 
+        metadata: Optional[List[Dict[str, Any]]] = None
+    ) -> InsertResult:
+        """插入数据
+        
+        Args:
+            chunks: 文本块列表
+            embeddings: 嵌入向量列表
+            metadata: 元数据列表
+            
+        Returns:
+            插入结果
+            
+        Raises:
+            ValidationError: 输入验证失败
+            MilvusCollectionError: 插入操作失败
+        """
+        # 输入验证
         if not chunks or not embeddings:
-            self.logger.warning("没有数据需要插入")
-            return False
+            raise ValidationError("chunks和embeddings不能为空")
         
         if len(chunks) != len(embeddings):
-            raise ValueError("chunks和embeddings长度不匹配")
+            raise ValidationError("chunks和embeddings长度不匹配")
         
-        start_time = time.time()
+        with self._measure_time("insert_data"):
+            try:
+                collection_name = self.config.database.collection_name
+                
+                # 准备数据
+                data = self._prepare_insert_data(chunks, embeddings, metadata)
+                
+                # 批量插入
+                inserted_count, errors = self._batch_insert(collection_name, data)
+                
+                result = InsertResult(
+                    success=len(errors) == 0,
+                    inserted_count=inserted_count,
+                    failed_count=len(data) - inserted_count,
+                    processing_time=0.0,  # 时间由_measure_time记录
+                    errors=errors
+                )
+                
+                self.logger.info(
+                    f"插入完成: 成功 {result.inserted_count}, "
+                    f"失败 {result.failed_count}, 总计 {len(data)}"
+                )
+                
+                return result
+                
+            except Exception as e:
+                if isinstance(e, (ValidationError, MilvusCollectionError)):
+                    raise
+                
+                raise MilvusCollectionError(
+                    f"插入数据失败: {str(e)}",
+                    collection_name=self.config.database.collection_name
+                )
+    
+    def _prepare_insert_data(
+        self, 
+        chunks: List[str], 
+        embeddings: List[List[float]], 
+        metadata: Optional[List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        """准备插入数据"""
+        data = []
+        current_time = time.time()
         
-        try:
-            self._stats["total_inserts"] += 1
-            collection_name = self.config.database.collection_name
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            # 生成唯一ID
+            chunk_hash = hashlib.md5(chunk.encode('utf-8')).hexdigest()
+            doc_id = f"{chunk_hash}_{i}"
             
-            # 准备数据
-            data = []
-            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-                # 生成唯一ID
-                chunk_hash = hashlib.md5(chunk.encode('utf-8')).hexdigest()
-                doc_id = f"{chunk_hash}_{i}"
-                
-                # 准备元数据
-                doc_metadata = metadata[i] if metadata and i < len(metadata) else {}
-                doc_metadata.update({
-                    "chunk_id": doc_id,
-                    "chunk_index": i,
-                    "content_length": len(chunk),
-                    "word_count": len(chunk.split()),
-                    "insert_time": time.time()
-                })
-                
-                data.append({
-                    "id": doc_id,
-                    "text": chunk,
-                    "embedding": embedding,
-                    "metadata": doc_metadata
-                })
+            # 准备元数据
+            doc_metadata = metadata[i] if metadata and i < len(metadata) else {}
+            doc_metadata.update({
+                "chunk_id": doc_id,
+                "chunk_index": i,
+                "content_length": len(chunk),
+                "word_count": len(chunk.split()),
+                "insert_time": current_time
+            })
             
-            # 批量插入
-            batch_size = self.config.database.batch_size if hasattr(self.config.database, 'batch_size') else 1000
+            data.append({
+                "id": doc_id,
+                "text": chunk,
+                "embedding": embedding,
+                "metadata": doc_metadata
+            })
+        
+        return data
+    
+    def _batch_insert(self, collection_name: str, data: List[Dict[str, Any]]) -> Tuple[int, List[str]]:
+        """批量插入数据"""
+        batch_size = getattr(self.config.database, 'batch_size', 1000)
+        inserted_count = 0
+        errors = []
+        
+        for i in range(0, len(data), batch_size):
+            batch = data[i:i + batch_size]
             
-            for i in range(0, len(data), batch_size):
-                batch = data[i:i + batch_size]
+            try:
                 self.client.insert(collection_name, batch)
+                inserted_count += len(batch)
                 self.logger.debug(f"插入批次 {i//batch_size + 1}: {len(batch)} 条数据")
-            
-            processing_time = time.time() - start_time
-            
-            # 更新统计信息
-            self._stats["successful_inserts"] += 1
-            self._stats["total_processing_time"] += processing_time
-            
-            self.logger.info(f"插入 {len(data)} 条数据到集合: {collection_name}，耗时: {processing_time:.2f}秒")
-            return True
-            
-        except Exception as e:
-            self._stats["failed_inserts"] += 1
-            self.logger.error(f"插入数据失败: {str(e)}")
-            raise
+                
+            except Exception as e:
+                error_msg = f"批次 {i//batch_size + 1} 插入失败: {str(e)}"
+                errors.append(error_msg)
+                self.logger.error(error_msg)
+        
+        return inserted_count, errors
     
     @retry(
         stop=stop_after_attempt(3),
@@ -229,101 +406,136 @@ class MilvusService:
         self, 
         query_embedding: List[float], 
         limit: Optional[int] = None,
-        filter_expr: Optional[str] = None
+        filter_expr: Optional[str] = None,
+        include_metadata: bool = True
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
-        """搜索相似文档"""
-        start_time = time.time()
+        """搜索相似文档
         
-        try:
-            self._stats["total_searches"] += 1
-            collection_name = self.config.database.collection_name
+        Args:
+            query_embedding: 查询嵌入向量
+            limit: 返回结果数量限制
+            filter_expr: 过滤表达式
+            include_metadata: 是否包含元数据
             
-            # 搜索参数
-            search_params = {
-                "data": [query_embedding],
-                "anns_field": "embedding",
-                "param": {
-                    "metric_type": self.config.database.metric_type,
-                    "params": {
-                        "nprobe": self.config.database.nprobe if hasattr(self.config.database, 'nprobe') else 10
-                    }
-                },
-                "limit": limit or self.config.search.search_limit,
-                "output_fields": ["text", "metadata"]
-            }
+        Returns:
+            搜索结果列表 (content, score, metadata)
             
-            # 添加过滤条件
-            if filter_expr:
-                search_params["expr"] = filter_expr
-            
-            # 执行搜索
-            results = self.client.search(
-                collection_name=collection_name,
-                **search_params
-            )
-            
-            # 处理结果
-            search_results = []
-            for hit in results[0]:
-                content = hit.entity.get("text", "")
-                score = hit.score
-                metadata = hit.entity.get("metadata", {})
+        Raises:
+            ValidationError: 输入验证失败
+            MilvusCollectionError: 搜索操作失败
+        """
+        if not query_embedding:
+            raise ValidationError("查询嵌入向量不能为空")
+        
+        with self._measure_time("search"):
+            try:
+                collection_name = self.config.database.collection_name
                 
-                search_results.append((content, score, metadata))
-            
-            processing_time = time.time() - start_time
-            
-            # 更新统计信息
-            self._stats["successful_searches"] += 1
-            self._stats["total_processing_time"] += processing_time
-            self._stats["average_search_time"] = (
-                (self._stats["average_search_time"] * (self._stats["successful_searches"] - 1) + processing_time) /
-                self._stats["successful_searches"]
-            )
-            
-            self.logger.debug(f"搜索完成，返回 {len(search_results)} 个结果，耗时: {processing_time:.3f}秒")
-            return search_results
-            
-        except Exception as e:
-            self._stats["failed_searches"] += 1
-            self.logger.error(f"搜索失败: {str(e)}")
-            raise
+                # 构建搜索参数
+                search_kwargs = {
+                    "collection_name": collection_name,
+                    "data": [query_embedding],
+                    "anns_field": "embedding",
+                    "search_params": {
+                        "metric_type": self.config.database.metric_type,
+                        "params": {
+                            "nprobe": getattr(self.config.database, 'nprobe', 10)
+                        }
+                    },
+                    "limit": limit or self.config.search.search_limit,
+                    "output_fields": ["text", "metadata"] if include_metadata else ["text"]
+                }
+                
+                if filter_expr:
+                    search_kwargs["expr"] = filter_expr
+                
+                # 执行搜索
+                results = self.client.search(**search_kwargs)
+                
+                # 处理结果
+                search_results = []
+                for hit in results[0]:
+                    content = hit.entity.get("text", "")
+                    score = hit.score
+                    metadata = hit.entity.get("metadata", {}) if include_metadata else {}
+                    
+                    search_results.append((content, score, metadata))
+                
+                self.logger.debug(f"搜索完成，返回 {len(search_results)} 个结果")
+                return search_results
+                
+            except Exception as e:
+                if isinstance(e, ValidationError):
+                    raise
+                
+                raise MilvusCollectionError(
+                    f"搜索失败: {str(e)}",
+                    collection_name=self.config.database.collection_name
+                )
     
-    def batch_search(self, query_embeddings: List[List[float]], limit: Optional[int] = None) -> List[List[Tuple[str, float, Dict[str, Any]]]]:
-        """批量搜索"""
-        try:
+    def batch_search(
+        self, 
+        query_embeddings: List[List[float]], 
+        limit: Optional[int] = None,
+        max_workers: Optional[int] = None
+    ) -> List[List[Tuple[str, float, Dict[str, Any]]]]:
+        """批量搜索
+        
+        Args:
+            query_embeddings: 查询嵌入向量列表
+            limit: 每个查询的结果数量限制
+            max_workers: 最大工作线程数
+            
+        Returns:
+            批量搜索结果
+        """
+        if not query_embeddings:
+            return []
+        
+        with self._measure_time("batch_search"):
             self.logger.info(f"开始批量搜索 {len(query_embeddings)} 个查询")
             
-            # 并发执行搜索
-            futures = []
-            for query_embedding in query_embeddings:
-                future = self._executor.submit(self.search, query_embedding, limit)
-                futures.append(future)
+            # 确定工作线程数
+            if max_workers is None:
+                max_workers = min(len(query_embeddings), 4)
             
-            # 收集结果
-            results = []
-            for future in futures:
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as e:
-                    self.logger.error(f"批量搜索中的单个查询失败: {str(e)}")
-                    results.append([])
-            
-            self.logger.info(f"批量搜索完成，成功处理 {len([r for r in results if r])} 个查询")
-            return results
-            
-        except Exception as e:
-            self.logger.error(f"批量搜索失败: {str(e)}")
-            raise
+            try:
+                # 并发执行搜索
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = [
+                        executor.submit(self.search, query_embedding, limit)
+                        for query_embedding in query_embeddings
+                    ]
+                    
+                    # 收集结果
+                    results = []
+                    for i, future in enumerate(futures):
+                        try:
+                            result = future.result()
+                            results.append(result)
+                        except Exception as e:
+                            self.logger.error(f"批量搜索中的查询 {i} 失败: {str(e)}")
+                            results.append([])
+                
+                successful_count = len([r for r in results if r])
+                self.logger.info(f"批量搜索完成，成功处理 {successful_count}/{len(query_embeddings)} 个查询")
+                
+                return results
+                
+            except Exception as e:
+                raise MilvusCollectionError(f"批量搜索失败: {str(e)}")
     
     def get_collection_info(self) -> Dict[str, Any]:
-        """获取集合信息"""
+        """获取集合信息
+        
+        Returns:
+            集合信息字典
+        """
         try:
             collection_name = self.config.database.collection_name
             
             if not self.client.has_collection(collection_name):
-                return {"error": "集合不存在"}
+                return {"error": "集合不存在", "collection_name": collection_name}
             
             # 获取集合统计信息
             stats = self.client.get_collection_stats(collection_name)
@@ -334,97 +546,138 @@ class MilvusService:
                 "index_status": "已创建" if self.client.has_index(collection_name) else "未创建",
                 "dimension": self.config.database.embedding_dim,
                 "metric_type": self.config.database.metric_type,
-                "index_type": self.config.database.index_type
+                "index_type": self.config.database.index_type,
+                "consistency_level": self.config.database.consistency_level
             }
             
         except Exception as e:
             self.logger.error(f"获取集合信息失败: {str(e)}")
             return {"error": str(e)}
     
-    def delete_data(self, filter_expr: str) -> bool:
-        """删除数据"""
+    def delete_data(self, filter_expr: str) -> int:
+        """删除数据
+        
+        Args:
+            filter_expr: 过滤表达式
+            
+        Returns:
+            删除的数据条数
+            
+        Raises:
+            MilvusCollectionError: 删除操作失败
+        """
+        with self._measure_time("delete_data"):
+            try:
+                collection_name = self.config.database.collection_name
+                
+                # 先查询要删除的数据数量
+                results = self.client.query(
+                    collection_name=collection_name,
+                    filter_=filter_expr,
+                    output_fields=["id"]
+                )
+                
+                delete_count = len(results)
+                
+                # 执行删除
+                self.client.delete(collection_name, filter_expr)
+                
+                self.logger.info(f"删除 {delete_count} 条数据，过滤条件: {filter_expr}")
+                return delete_count
+                
+            except Exception as e:
+                raise MilvusCollectionError(
+                    f"删除数据失败: {str(e)}",
+                    collection_name=self.config.database.collection_name
+                )
+    
+    def get_milvus_statistics(self) -> Dict[str, Any]:
+        """获取Milvus服务统计信息
+        
+        Returns:
+            详细的统计信息字典
+        """
+        base_metrics = self.get_metrics()
+        
+        return {
+            **base_metrics,
+            "connection_info": {
+                "endpoint": self._get_endpoint(),
+                "connection_alias": self._connection_alias,
+                "is_connected": self.health_check()
+            },
+            "collection_info": self.get_collection_info(),
+            "configuration": {
+                "embedding_dim": self.config.database.embedding_dim,
+                "metric_type": self.config.database.metric_type,
+                "index_type": self.config.database.index_type,
+                "consistency_level": self.config.database.consistency_level,
+                "batch_size": getattr(self.config.database, 'batch_size', 1000)
+            }
+        }
+    
+    def reset_statistics(self) -> None:
+        """重置统计信息"""
+        self.reset_metrics()
+        self.logger.info("Milvus统计信息已重置")
+    
+    def check_connection(self) -> bool:
+        """检测Milvus连接是否正常
+        
+        Returns:
+            连接是否正常
+        """
         try:
-            collection_name = self.config.database.collection_name
+            if not self.client:
+                return False
             
-            # 先查询要删除的数据数量
-            results = self.client.query(
-                collection_name=collection_name,
-                filter_=filter_expr,
-                output_fields=["id"]
-            )
-            
-            delete_count = len(results)
-            
-            # 执行删除
-            self.client.delete(collection_name, filter_expr)
-            
-            self.logger.info(f"删除 {delete_count} 条数据，过滤条件: {filter_expr}")
+            # 尝试列出集合
+            collections = self.client.list_collections()
+            self.logger.info(f"Milvus连接正常，发现 {len(collections)} 个集合")
             return True
             
         except Exception as e:
-            self.logger.error(f"删除数据失败: {str(e)}")
-            raise
+            self.logger.error(f"Milvus连接检测失败: {str(e)}")
+            return False
     
-    def get_statistics(self) -> Dict[str, Any]:
-        """获取统计信息"""
-        total_searches = self._stats["total_searches"]
-        total_inserts = self._stats["total_inserts"]
+    def reconnect(self) -> bool:
+        """重新连接
         
-        search_success_rate = 0.0
-        insert_success_rate = 0.0
-        
-        if total_searches > 0:
-            search_success_rate = self._stats["successful_searches"] / total_searches
-        
-        if total_inserts > 0:
-            insert_success_rate = self._stats["successful_inserts"] / total_inserts
-        
-        return {
-            "searches": {
-                "total": total_searches,
-                "successful": self._stats["successful_searches"],
-                "failed": self._stats["failed_searches"],
-                "success_rate": search_success_rate,
-                "average_time": self._stats["average_search_time"]
-            },
-            "inserts": {
-                "total": total_inserts,
-                "successful": self._stats["successful_inserts"],
-                "failed": self._stats["failed_inserts"],
-                "success_rate": insert_success_rate
-            },
-            "collection_info": self.get_collection_info()
-        }
+        Returns:
+            重连是否成功
+        """
+        try:
+            self.logger.info("尝试重新连接Milvus服务器...")
+            
+            # 关闭现有连接
+            try:
+                if hasattr(self, '_connection_alias'):
+                    connections.disconnect(self._connection_alias)
+            except Exception:
+                pass
+            
+            # 重新初始化
+            self._init_client()
+            self._test_connection()
+            
+            self.logger.info("Milvus服务器重连成功")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Milvus服务器重连失败: {str(e)}")
+            return False
     
-    def reset_statistics(self):
-        """重置统计信息"""
-        self._stats = {
-            "total_searches": 0,
-            "successful_searches": 0,
-            "failed_searches": 0,
-            "total_inserts": 0,
-            "successful_inserts": 0,
-            "failed_inserts": 0,
-            "total_processing_time": 0.0,
-            "average_search_time": 0.0
-        }
-        self.logger.info("Milvus服务统计信息已重置")
-    
-    def cleanup(self):
+    def cleanup(self) -> None:
         """清理资源"""
         try:
-            if hasattr(self, '_executor'):
-                self._executor.shutdown(wait=True)
-            
             # 关闭连接
-            connections.disconnect("default")
+            if hasattr(self, '_connection_alias'):
+                connections.disconnect(self._connection_alias)
+            
+            # 调用基类清理
+            super().cleanup()
             
             self.logger.info("Milvus服务资源清理完成")
+            
         except Exception as e:
-            self.logger.error(f"Milvus服务资源清理失败: {str(e)}")
-    
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.cleanup() 
+            self.logger.error(f"Milvus服务资源清理失败: {str(e)}") 

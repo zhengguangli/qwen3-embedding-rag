@@ -4,7 +4,7 @@
     "timeout": 30
   },
   "database": {
-    "milvus_uri": "http://10.172.10.100:19530",
+    "endpoint": "http://10.172.10.100:19530",
     "collection_name": "qwen3_embedding_rag"
   },
   "models": {
@@ -21,7 +21,7 @@
       "top_p": 0.95,
       "top_k": 20,
       "min_p": 0,
-      "max_tokens": 32768,
+      "max_tokens": 2048,
       "stop": null
     }
   },

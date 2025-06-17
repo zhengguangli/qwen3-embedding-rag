@@ -49,9 +49,7 @@ class DatabaseConfig(BaseModel):
     """数据库配置模型"""
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
     
-    milvus_uri: str = Field(default="http://10.172.10.100:19530", description="Milvus服务URI")
-    host: str = Field(default="localhost", description="Milvus主机地址")
-    port: int = Field(default=19530, description="Milvus端口")
+    endpoint: str = Field(default="http://localhost:19530", description="Milvus服务Endpoint，格式如http://host:port")
     collection_name: str = Field(default="qwen3_embedding_rag", description="集合名称")
     username: str = Field(default="", description="Milvus用户名")
     password: str = Field(default="", description="Milvus密码")
@@ -66,14 +64,18 @@ class DatabaseConfig(BaseModel):
     nprobe: int = Field(default=16, description="搜索聚类数")
     m: int = Field(default=4, description="HNSW参数M")
     nbits: int = Field(default=8, description="量化位数")
-    
-    @field_validator('milvus_uri')
+    # 向后兼容
+    milvus_uri: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+
+    @field_validator('endpoint')
     @classmethod
-    def validate_milvus_uri(cls, v: str) -> str:
-        if not v.startswith(('http://', 'https://')):
-            raise ValueError("Milvus URI必须以http://或https://开头")
-        return v
-    
+    def validate_endpoint(cls, v: str) -> str:
+        if not v.startswith(('http://', 'https://', 'tcp://', 'unix://')):
+            raise ValueError("Endpoint必须以http://、https://、tcp://或unix://开头")
+        return v.rstrip('/')
+
     @field_validator('collection_name')
     @classmethod
     def validate_collection_name(cls, v: str) -> str:
@@ -241,6 +243,14 @@ class RAGConfig:
         self.config_data: Dict[str, Any] = {}
         self.config_model: Optional[RAGConfigModel] = None
         self._last_modified: Optional[float] = None
+        
+        # 如果没有指定配置文件，尝试自动查找rag_config.json
+        if not config_file:
+            default_config = Path("rag_config.json")
+            if default_config.exists():
+                config_file = str(default_config)
+                self.config_file = config_file
+                logger.info(f"自动加载默认配置文件: {config_file}")
         
         if config_file:
             self.load_from_file(config_file)

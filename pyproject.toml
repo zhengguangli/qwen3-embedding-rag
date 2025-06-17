@@ -11,7 +11,7 @@ authors = [
 ]
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -25,7 +25,6 @@ classifiers = [
 ]
 dependencies = [
     "openai>=1.0.0",
-    "pymilvus>=2.3.0",
     "tqdm>=4.64.0",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
@@ -36,6 +35,7 @@ dependencies = [
     "structlog>=23.0.0",
     "rich>=13.0.0",
     "click>=8.0.0",
+    "pymilvus>=2.5.11",
 ]
 
 [project.optional-dependencies]

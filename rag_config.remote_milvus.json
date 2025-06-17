@@ -1,0 +1,73 @@
+{
+  "api": {
+    "openai_api_key": "your-api-key-here",
+    "openai_base_url": "http://10.172.10.103:11434/v1",
+    "timeout": 30,
+    "max_retries": 3,
+    "retry_delay": 1.0
+  },
+  "database": {
+    "endpoint": "http://10.172.10.100:19530",
+    "collection_name": "qwen3_embedding_rag",
+    "username": "",
+    "password": "",
+    "timeout": 30,
+    "embedding_dim": 1024,
+    "metric_type": "IP",
+    "index_type": "IVF_FLAT",
+    "nlist": 1024,
+    "consistency_level": "Strong",
+    "batch_size": 1000,
+    "ttl_seconds": 0,
+    "nprobe": 16,
+    "m": 4,
+    "nbits": 8
+  },
+  "models": {
+    "embedding": {
+      "name": "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0",
+      "dim": 1024,
+      "batch_size": 32,
+      "max_length": 512,
+      "normalize": true,
+      "cache_size": 1000
+    },
+    "llm": {
+      "name": "qwen3:4b",
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "top_k": 20,
+      "min_p": 0.0,
+      "max_tokens": 2048,
+      "stop": null,
+      "system_prompt": "你是一个有用的AI助手。"
+    }
+  },
+  "data": {
+    "data_path_glob": "milvus_docs/en/faq/*.md",
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "chunk_strategy": "fixed",
+    "file_extensions": [".md", ".txt", ".json"]
+  },
+  "search": {
+    "search_limit": 10,
+    "similarity_threshold": 0.7,
+    "rerank_top_k": 5,
+    "use_reranker": true,
+    "rerank_algorithm": "llm"
+  },
+  "logging": {
+    "log_level": "INFO",
+    "log_file": "logs/rag_system.log",
+    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "max_file_size": 10485760,
+    "backup_count": 5
+  },
+  "output": {
+    "output_dir": "answers",
+    "output_format": "txt",
+    "include_metadata": true,
+    "timestamp_format": "%Y%m%d_%H%M%S"
+  }
+} 
