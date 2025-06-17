@@ -1,103 +1,44 @@
 {
-  "_comment": "RAG系统配置文件 - 基于Qwen3 Embedding和Milvus向量数据库",
-  "_version": "1.0.0",
-  "_description": "检索增强生成系统配置",
-  
   "api": {
-    "_comment": "API相关配置",
-    "openai_api_key": "",
     "openai_base_url": "http://10.172.10.103:11434/v1",
-    "timeout": 30,
-    "max_retries": 3,
-    "retry_delay": 1.0
+    "timeout": 30
   },
-  
   "database": {
-    "_comment": "Milvus向量数据库配置",
     "milvus_uri": "http://10.172.10.100:19530",
-    "collection_name": "qwen3_embedding_rag",
-    "embedding_dim": 1024,
-    "metric_type": "IP",
-    "consistency_level": "Strong",
-    "index_type": "IVF_FLAT",
-    "nlist": 1024,
-    "nprobe": 16
+    "collection_name": "qwen3_embedding_rag"
   },
-  
   "models": {
-    "_comment": "AI模型配置",
-    "embedding_model": "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0",
-    "reranker_model": "qwen3:4b",
-    "llm_model": "qwen3:4b",
-    "embedding_batch_size": 32,
-    "llm_max_tokens": 32768,
-    "llm_temperature": 0.7
+    "embedding": {
+      "name": "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0",
+      "dim": 1024,
+      "batch_size": 32,
+      "max_length": 512,
+      "normalize": true
+    },
+    "llm": {
+      "name": "qwen3:4b",
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "top_k": 20,
+      "min_p": 0,
+      "max_tokens": 32768,
+      "stop": null
+    }
   },
-  
   "data": {
-    "_comment": "数据处理配置",
     "data_path_glob": "milvus_docs/en/faq/*.md",
     "chunk_size": 1000,
-    "chunk_overlap": 200,
-    "supported_formats": [".md", ".txt", ".pdf"],
-    "encoding": "utf-8"
+    "chunk_overlap": 200
   },
-  
   "search": {
-    "_comment": "搜索相关配置",
     "search_limit": 10,
-    "rerank_top_k": 3,
-    "similarity_threshold": 0.7,
-    "enable_rerank": true,
-    "enable_hybrid_search": false
+    "similarity_threshold": 0.7
   },
-  
-  "performance": {
-    "_comment": "性能优化配置",
-    "cache_size": 1000,
-    "max_workers": 4,
-    "batch_size": 32,
-    "enable_gpu": false,
-    "gpu_memory_fraction": 0.8
-  },
-  
   "logging": {
-    "_comment": "日志配置",
     "log_level": "INFO",
-    "log_file": "logs/rag_system.log",
-    "max_log_size": "10MB",
-    "backup_count": 5,
-    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    "log_file": "logs/rag_system.log"
   },
-  
   "output": {
-    "_comment": "输出配置",
-    "output_dir": "answers",
-    "save_intermediate_results": true,
-    "include_metadata": true,
-    "output_format": "txt"
-  },
-  
-  "prompts": {
-    "_comment": "提示词配置",
-    "system_prompt": "你是一个专业的AI助手，请基于提供的上下文信息准确回答问题。如果上下文中没有相关信息，请明确说明。",
-    "query_prompt": "基于以下上下文信息回答问题：\n\n{context}\n\n问题：{question}\n\n答案：",
-    "rerank_prompt": "请对以下候选答案进行重新排序，选择最相关的答案：\n\n{answers}\n\n问题：{question}"
-  },
-  
-  "security": {
-    "_comment": "安全配置",
-    "enable_ssl_verification": true,
-    "api_key_rotation_days": 30,
-    "max_request_size": "10MB",
-    "rate_limit_per_minute": 60
-  },
-  
-  "monitoring": {
-    "_comment": "监控配置",
-    "enable_metrics": true,
-    "metrics_port": 8000,
-    "health_check_interval": 30,
-    "performance_monitoring": true
+    "output_dir": "answers"
   }
-} 
+}

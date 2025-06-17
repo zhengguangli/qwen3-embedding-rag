@@ -1,6 +1,37 @@
+# 核心依赖
 openai>=1.0.0
 pymilvus>=2.3.0
-tqdm>=4.64.0
 pydantic>=2.0.0
 pyyaml>=6.0
-pathlib2>=2.3.7 
+
+# 异步和并发
+asyncio-mqtt>=0.16.0
+aiofiles>=23.0.0
+
+# 错误处理和重试
+tenacity>=8.0.0
+
+# 日志和监控
+structlog>=23.0.0
+
+# CLI和用户界面
+rich>=13.0.0
+click>=8.0.0
+
+# 工具库
+tqdm>=4.64.0
+pathlib2>=2.3.7
+
+# 文档处理
+chardet>=5.0.0
+langdetect>=1.0.9
+
+# 开发依赖（可选）
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
+# pytest-cov>=4.0.0
+# black>=23.0.0
+# isort>=5.12.0
+# flake8>=6.0.0
+# mypy>=1.0.0
+# pre-commit>=3.0.0 

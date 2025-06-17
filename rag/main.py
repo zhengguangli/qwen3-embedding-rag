@@ -125,6 +125,3 @@ def main():
         logger.error(f"程序运行出错: {str(e)}")
         print(f"程序错误: {str(e)}")
         sys.exit(1)
-
-if __name__ == "__main__":
-    main()
