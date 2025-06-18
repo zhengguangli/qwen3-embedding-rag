@@ -23,7 +23,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from src.rag.config import RAGConfig
 from .base import CacheableService
-from src.rag.exceptions import RAGException, handle_exception
+from src.rag.exceptions import RAGException, EmbeddingError, APIError, handle_exception
 
 
 @dataclass
@@ -76,7 +76,7 @@ class EmbeddingService(CacheableService):
             self._test_api_connection()
             
         except Exception as e:
-            raise RAGException(
+            raise EmbeddingError(
                 f"嵌入服务初始化失败: {str(e)}",
                 model_name=self.config.models.embedding.name
             )
@@ -115,7 +115,7 @@ class EmbeddingService(CacheableService):
             self.logger.debug("API连接测试成功")
             
         except Exception as e:
-            raise RAGException(
+            raise APIError(
                 f"API连接测试失败: {str(e)}",
                 endpoint=self.config.api.openai_base_url
             )
@@ -179,7 +179,7 @@ class EmbeddingService(CacheableService):
                     raise
                 
                 rag_exception = handle_exception(e)
-                raise RAGException(
+                raise EmbeddingError(
                     f"嵌入生成失败: {str(e)}",
                     model_name=self.config.models.embedding.name
                 ) from e

@@ -20,7 +20,7 @@ from rich.syntax import Syntax
 
 from src.rag.config import RAGConfig
 from src.rag.exceptions import RAGException, handle_exception
-from .pipeline import RAGPipeline
+from .app import RAGApp
 from .utils import setup_logging, check_dependencies
 
 # 设置Rich控制台
@@ -63,25 +63,21 @@ def ask(ctx, question: Optional[str], output_file: str, force_recreate: bool):
     print_banner()
     
     try:
-        # 检查依赖
-        check_dependencies()
+        # 创建应用程序实例
+        app = RAGApp(config_file=ctx.obj["config"], env=ctx.obj["env"])
         
-        # 加载配置
-        config = RAGConfig(ctx.obj["config"], env=ctx.obj["env"])
-        ctx.obj["logger"].info("配置加载成功")
-        
-        # 显示配置摘要
-        show_config_summary(config)
-        
-        # 初始化管道
+        # 初始化应用程序
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console
         ) as progress:
-            task = progress.add_task("初始化RAG管道...", total=None)
-            pipeline = RAGPipeline(config)
-            progress.update(task, description="RAG管道初始化完成")
+            task = progress.add_task("初始化RAG应用程序...", total=None)
+            app.initialize()
+            progress.update(task, description="RAG应用程序初始化完成")
+        
+        # 显示配置摘要
+        show_config_summary(app.config)
         
         # 强制重建集合
         if force_recreate:
@@ -91,14 +87,14 @@ def ask(ctx, question: Optional[str], output_file: str, force_recreate: bool):
                 console=console
             ) as progress:
                 task = progress.add_task("重建Milvus集合...", total=None)
-                pipeline.setup_collection(force_recreate=True)
+                app.setup_collection(force_recreate=True)
                 progress.update(task, description="Milvus集合重建完成")
         
         # 处理问题
         if question:
-            process_single_question(pipeline, question, output_file, ctx.obj["logger"])
+            process_single_question(app, question, output_file, ctx.obj["logger"])
         else:
-            interactive_mode(pipeline, ctx.obj["logger"])
+            interactive_mode(app, ctx.obj["logger"])
             
     except Exception as e:
         console.print(f"[red]错误: {str(e)}[/red]")
@@ -112,11 +108,8 @@ def setup(ctx):
     print_banner()
     
     try:
-        # 检查依赖
-        check_dependencies()
-        
-        # 加载配置
-        config = RAGConfig(ctx.obj["config"], env=ctx.obj["env"])
+        # 创建应用程序实例
+        app = RAGApp(config_file=ctx.obj["config"], env=ctx.obj["env"])
         
         with Progress(
             SpinnerColumn(),
@@ -124,14 +117,12 @@ def setup(ctx):
             console=console
         ) as progress:
             task = progress.add_task("初始化系统...", total=None)
-            
-            # 初始化管道
-            pipeline = RAGPipeline(config)
-            progress.update(task, description="RAG管道初始化完成")
+            app.initialize()
+            progress.update(task, description="RAG应用程序初始化完成")
             
             # 设置集合
             task = progress.add_task("设置Milvus集合...", total=None)
-            pipeline.setup_collection(force_recreate=False)
+            app.setup_collection(force_recreate=False)
             progress.update(task, description="Milvus集合设置完成")
         
         console.print("[green]系统设置完成！[/green]")
@@ -141,18 +132,70 @@ def setup(ctx):
         ctx.obj["logger"].error(f"系统设置失败: {str(e)}")
         sys.exit(1)
 
-@cli.command()
+@cli.group()
 @click.pass_context
 def config(ctx):
-    """显示和验证配置"""
+    """配置管理命令组"""
+    pass
+
+@config.command("show")
+@click.option("--detailed", "-d", is_flag=True, help="显示详细配置")
+@click.pass_context
+def config_show(ctx, detailed: bool):
+    """显示配置信息"""
     print_banner()
     
     try:
-        config = RAGConfig(ctx.obj["config"], env=ctx.obj["env"])
-        show_detailed_config(config)
+        app = RAGApp(config_file=ctx.obj["config"], env=ctx.obj["env"])
+        app.load_config()
         
+        if detailed:
+            show_detailed_config(app.config)
+        else:
+            show_config_summary(app.config)
+            
     except Exception as e:
         console.print(f"[red]配置错误: {str(e)}[/red]")
+        ctx.obj["logger"].error(f"配置显示失败: {str(e)}")
+        sys.exit(1)
+
+@config.command("reload")
+@click.pass_context
+def config_reload(ctx):
+    """重新加载配置"""
+    print_banner()
+    
+    try:
+        app = RAGApp(config_file=ctx.obj["config"], env=ctx.obj["env"])
+        app.load_config()
+        
+        if app.reload_config():
+            console.print("[green]配置重新加载成功！[/green]")
+        else:
+            console.print("[yellow]配置文件未变更，无需重新加载[/yellow]")
+            
+    except Exception as e:
+        console.print(f"[red]配置重新加载失败: {str(e)}[/red]")
+        ctx.obj["logger"].error(f"配置重新加载失败: {str(e)}")
+        sys.exit(1)
+
+@config.command("validate")
+@click.pass_context
+def config_validate(ctx):
+    """验证配置"""
+    print_banner()
+    
+    try:
+        app = RAGApp(config_file=ctx.obj["config"], env=ctx.obj["env"])
+        app.load_config()
+        
+        if app.config.validate():
+            console.print("[green]配置验证通过！[/green]")
+        else:
+            console.print("[red]配置验证失败[/red]")
+            
+    except Exception as e:
+        console.print(f"[red]配置验证失败: {str(e)}[/red]")
         ctx.obj["logger"].error(f"配置验证失败: {str(e)}")
         sys.exit(1)
 
@@ -163,25 +206,26 @@ def status(ctx):
     print_banner()
     
     try:
-        config = RAGConfig(ctx.obj["config"], env=ctx.obj["env"])
+        app = RAGApp(config_file=ctx.obj["config"], env=ctx.obj["env"])
+        app.load_config()
         
-        # 检查各个组件状态
+        # 获取系统状态
+        status_info = app.get_status()
+        
+        # 创建状态表格
         status_table = rich.table.Table(title="系统状态")
         status_table.add_column("组件", style="cyan")
         status_table.add_column("状态", style="green")
         status_table.add_column("详情", style="white")
         
-        # 检查配置
-        try:
-            config.validate()
-            status_table.add_row("配置", "✅ 正常", "配置验证通过")
-        except Exception as e:
-            status_table.add_row("配置", "❌ 错误", str(e))
+        # 配置状态
+        config_status = "✅ 正常" if status_info["config_loaded"] else "❌ 未加载"
+        status_table.add_row("配置", config_status, f"环境: {status_info['current_env']}")
         
         # 检查Milvus连接
         try:
             from .milvus_service import MilvusService
-            milvus_service = MilvusService(config)
+            milvus_service = MilvusService(app.config)
             milvus_service.check_connection()
             status_table.add_row("Milvus", "✅ 正常", "连接成功")
         except Exception as e:
@@ -191,8 +235,8 @@ def status(ctx):
         try:
             from openai import OpenAI
             client = OpenAI(
-                api_key=config.api.openai_api_key,
-                base_url=config.api.openai_base_url
+                api_key=app.config.api.openai_api_key,
+                base_url=app.config.api.openai_base_url
             )
             # 简单测试连接
             client.models.list()
@@ -213,8 +257,10 @@ def show_config_summary(config: RAGConfig):
     summary_table.add_column("配置项", style="cyan")
     summary_table.add_column("值", style="white")
     
+    summary_table.add_row("当前环境", config.env)
+    summary_table.add_row("配置文件", config.config_file or "默认配置")
     summary_table.add_row("API基础URL", config.api.openai_base_url)
-    summary_table.add_row("Milvus URI", config.database.milvus_uri)
+    summary_table.add_row("Milvus URI", config.database.milvus_uri or config.database.endpoint)
     summary_table.add_row("集合名称", config.database.collection_name)
     summary_table.add_row("嵌入模型", config.models.embedding.name)
     summary_table.add_row("LLM模型", config.models.llm.name)
@@ -230,7 +276,7 @@ def show_detailed_config(config: RAGConfig):
     syntax = Syntax(config_json, "json", theme="monokai")
     console.print(Panel(syntax, title="详细配置", border_style="blue"))
 
-def process_single_question(pipeline: RAGPipeline, question: str, output_file: str, logger):
+def process_single_question(app: RAGApp, question: str, output_file: str, logger):
     """处理单个问题"""
     console.print(f"\n[bold cyan]问题:[/bold cyan] {question}")
     
@@ -240,18 +286,11 @@ def process_single_question(pipeline: RAGPipeline, question: str, output_file: s
         console=console
     ) as progress:
         task = progress.add_task("正在生成答案...", total=None)
-        answer = pipeline.run(question)
+        answer = app.ask_question(question, output_file)
         progress.update(task, description="答案生成完成")
     
-    # 保存答案
-    output_path = Path("answers") / output_file
-    output_path.parent.mkdir(exist_ok=True)
-    
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(f"问题: {question}\n")
-        f.write(f"答案: {answer}\n")
-    
     # 显示结果
+    output_path = Path("answers") / output_file
     console.print(f"\n[bold green]答案已保存到:[/bold green] {output_path}")
     console.print(f"[bold green]答案长度:[/bold green] {len(answer)} 字符")
     
@@ -260,7 +299,7 @@ def process_single_question(pipeline: RAGPipeline, question: str, output_file: s
     console.print(f"\n[bold yellow]答案摘要:[/bold yellow]")
     console.print(Panel(answer_preview, border_style="yellow"))
 
-def interactive_mode(pipeline: RAGPipeline, logger):
+def interactive_mode(app: RAGApp, logger):
     """交互模式"""
     console.print("\n[bold green]进入交互模式[/bold green]")
     console.print("输入问题开始对话，输入 'quit' 或 'exit' 退出\n")
@@ -276,7 +315,7 @@ def interactive_mode(pipeline: RAGPipeline, logger):
             if not question.strip():
                 continue
             
-            process_single_question(pipeline, question, f"answer_{len(question)}.txt", logger)
+            process_single_question(app, question, f"answer_{len(question)}.txt", logger)
             
         except KeyboardInterrupt:
             console.print("\n[yellow]退出程序...[/yellow]")
@@ -289,4 +328,7 @@ def main():
     """主入口函数"""
     cli()
 
-# 移除重复的入口点，只保留main函数供外部调用 
+# 移除重复的入口点，只保留main函数供外部调用
+
+if __name__ == "__main__":
+    main() 
